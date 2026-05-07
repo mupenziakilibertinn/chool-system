@@ -1,21 +1,16 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth"; // 1. Added this import
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDqaBEM57Q_k_sGfv2A7RWifxJ0EhnczeE",
-  authDomain: "school-system-e05c0.firebaseapp.com",
-  projectId: "school-system-e05c0",
-  storageBucket: "school-system-e05c0.firebasestorage.app",
-  messagingSenderId: "69366841525",
-  appId: "1:69366841525:web:03ea99c608542f81777efc"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_ID",
+  appId: "YOUR_APP_ID"
 };
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-
-// Initialize services
-const db = getFirestore(app);
-const auth = getAuth(app); // 2. Added this initialization
-
-// 3. Export BOTH db and auth
-export { db, auth };
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+export const db = getFirestore(app);
+export const auth = getAuth(app);

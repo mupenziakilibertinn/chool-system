@@ -1,6 +1,5 @@
 "use client";
-import { useState } from "react";
-import { auth } from "../../lib/firebase"; // Ensure path is correct
+import { useState } from "react"; // Ensure path is correct
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { useRouter } from "next/navigation";
 

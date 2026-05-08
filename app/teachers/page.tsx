@@ -4,25 +4,22 @@ import { db, auth } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase/firestore";
 
-export default function TeacherPortal() {
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [myClasses, setMyClasses] = useState<string[]>([]);
-  const [mySubjects, setMySubjects] = useState<string[]>([]);
-  const [students, setStudents] = useState<any[]>([]);
+export default function TeacherPage() {
+  const [user, setUser] = useState<any>(null);
+  const [config, setConfig] = useState<any>({ classes: [], subjects: [] });
   const [selectedClass, setSelectedClass] = useState("");
-  const [subject, setSubject] = useState("");
-  const [testOutOf, setTestOutOf] = useState(50); 
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const [students, setStudents] = useState<any[]>([]);
+  const [outOf, setOutOf] = useState(50);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (user?.email) {
-        const email = user.email.toLowerCase();
-        setUserEmail(email);
-        const docSnap = await getDoc(doc(db, "teachers", email));
-        if (docSnap.exists()) {
-          const d = docSnap.data();
-          setMyClasses(d.classes); setMySubjects(d.subjects);
-          setSelectedClass(d.classes[0]); setSubject(d.subjects[0]);
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (u?.email) {
+        setUser(u);
+        const snap = await getDoc(doc(db, "teachers", u.email.toLowerCase()));
+        if (snap.exists()) {
+          const d = snap.data(); setConfig(d);
+          setSelectedClass(d.classes[0]); setSelectedSubject(d.subjects[0]);
         }
       }
     });
@@ -30,66 +27,56 @@ export default function TeacherPortal() {
   }, []);
 
   useEffect(() => {
-    if (!selectedClass || !subject) return;
-    const fetch = async () => {
+    if (!selectedClass) return;
+    const load = async () => {
       const snap = await getDocs(query(collection(db, "students"), where("class", "==", selectedClass)));
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => a.name.localeCompare(b.name));
       setStudents(list);
       for (const s of list) {
-        const mSnap = await getDoc(doc(db, "students", s.id, "marks", subject));
-        const marks = mSnap.exists() ? mSnap.data() : {};
-        ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
-          const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
-          if (el) el.value = marks[f] || "";
-        });
+        const mSnap = await getDoc(doc(db, "students", s.id, "marks", selectedSubject));
+        if (mSnap.exists()) {
+          const m = mSnap.data();
+          ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
+            const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
+            if (el) el.value = m[f] || "";
+          });
+        }
       }
     };
-    fetch();
-  }, [selectedClass, subject]);
+    load();
+  }, [selectedClass, selectedSubject]);
 
-  const handleAutoSave = (studentId: string, field: string, raw: string) => {
-    if (!raw) return;
+  const save = async (sid: string, field: string, val: string) => {
+    if (!val) return;
     const target = selectedClass === "P6" ? 100 : 50;
-    const converted = Math.round((Number(raw) / testOutOf) * target);
-    setDoc(doc(db, "students", studentId, "marks", subject), { [field]: converted }, { merge: true });
+    const final = Math.round((Number(val) / outOf) * target);
+    await setDoc(doc(db, "students", sid, "marks", selectedSubject), { [field]: final }, { merge: true });
   };
 
-  if (!userEmail) return <div className="p-20 text-center font-black">Loading Teacher Portal...</div>;
+  if (!user) return <div className="p-10 font-bold uppercase">Please login to access...</div>;
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="bg-blue-900 p-6 text-white sticky top-0 z-50 flex justify-between items-center shadow-lg">
-         <h1 className="text-lg font-black uppercase italic">NGS PORTAL</h1>
-         <div className="flex gap-3">
-            <div className="bg-blue-800 p-1 rounded-lg flex items-center gap-2 border border-blue-400">
-               <span className="text-[8px] font-black uppercase px-2">OUT OF:</span>
-               <input type="number" value={testOutOf} onChange={(e) => setTestOutOf(Number(e.target.value))} className="w-10 text-center text-blue-900 rounded font-black h-7" />
-            </div>
-            <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="p-1 rounded font-bold text-blue-900 text-xs">
-               {myClasses.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={subject} onChange={(e) => setSubject(e.target.value)} className="p-1 rounded font-bold text-blue-900 text-xs">
-               {mySubjects.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-         </div>
+    <div className="min-h-screen">
+      <div className="bg-blue-900 text-white p-4 flex justify-between sticky top-0 z-50">
+        <div className="flex gap-2">
+          <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="text-black text-xs p-1 font-bold">
+            {config.classes.map((c: string) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)} className="text-black text-xs p-1 font-bold">
+            {config.subjects.map((s: string) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="text-[10px] font-bold">PAPER OUT OF: <input type="number" value={outOf} onChange={(e) => setOutOf(Number(e.target.value))} className="w-8 text-black" /></div>
       </div>
-      <table className="w-full text-left border-collapse">
-        <thead className="bg-gray-100 text-[10px] font-black uppercase text-blue-900 border-b">
-          <tr><th className="p-4 border-r w-1/4">Student</th>{["t1", "m1", "t2", "m2", "exam"].map(h => <th key={h} className="p-2 border-r text-center">{h}</th>)}</tr>
-        </thead>
+      <table className="w-full text-xs">
+        <thead className="bg-gray-200 uppercase"><tr><th className="p-2 border">Name</th>{["t1", "m1", "t2", "m2", "exam"].map(h => <th key={h} className="border p-2">{h}</th>)}</tr></thead>
         <tbody>
           {students.map((s, idx) => (
-            <tr key={s.id} className="border-b hover:bg-blue-50 transition-colors">
-              <td className="p-4 font-black text-blue-900 text-[11px] uppercase border-r bg-gray-50">{s.name}</td>
+            <tr key={s.id} className="border-b">
+              <td className="p-2 font-bold uppercase">{s.name}</td>
               {["t1", "m1", "t2", "m2", "exam"].map(f => (
-                <td key={f} className="p-0 border-r">
-                   <input 
-                     id={`${f}-${s.id}`} type="number" 
-                     onBlur={(e) => handleAutoSave(s.id, f, e.target.value)}
-                     onKeyDown={(e) => { if(e.key === "Enter") document.getElementById(`${f}-${students[idx+1]?.id}`)?.focus(); }}
-                     className="w-full p-4 text-center font-black text-blue-900 outline-none focus:bg-white"
-                     placeholder={`/${testOutOf}`}
-                   />
+                <td key={f} className="p-0 border">
+                  <input id={`${f}-${s.id}`} type="number" onBlur={(e) => save(s.id, f, e.target.value)} onKeyDown={(e) => {if(e.key==="Enter") document.getElementById(`${f}-${students[idx+1]?.id}`)?.focus();}} className="w-full p-2 text-center" placeholder={`/${outOf}`} />
                 </td>
               ))}
             </tr>

@@ -20,46 +20,38 @@ export default function LoginPage() {
     const cleanEmail = email.trim().toLowerCase();
 
     try {
-      // 1. First, check if this teacher exists in your Firestore database records
+      // Corrected single document lookup checking reference exists validation rules
       const teacherDocRef = doc(db, "teachers", cleanEmail);
       const teacherSnap = await getDoc(teacherDocRef);
 
-      if (!teacherSnap.empty && !teacherSnap.exists()) {
-        throw new Error("ACCESS DENIED: Your email is not registered in the school system.");
+      if (!teacherSnap.exists()) {
+        throw new Error("ACCESS DENIED: Email address is not registered in our system.");
       }
 
       const teacherData = teacherSnap.data();
       const isAdmin = teacherData?.isAdmin || cleanEmail === "mupenziakili@gmail.com";
 
-      // 2. Validate the universal password rules matching your instruction
-      let requiredPassword = "123456"; // Default for all teachers
+      // Match master rule parameters
+      let requiredPassword = "123456";
       if (isAdmin) {
-        requiredPassword = "Mupenzi2004"; // Your personal master password
+        requiredPassword = "Mupenzi2004";
       }
 
       if (password !== requiredPassword) {
-        throw new Error("INVALID PASSWORD: Please verify your credentials and try again.");
+        throw new Error("INVALID SECURITY KEY: Check configuration parameters.");
       }
 
-      // 3. Authenticate with Firebase Auth in the background
       try {
         await signInWithEmailAndPassword(auth, cleanEmail, password);
       } catch (authErr: any) {
-        // If account doesn't exist in Auth tab yet, auto-create it instantly to prevent errors
         if (authErr.code === "auth/user-not-found" || authErr.code === "auth/invalid-credential") {
-          try {
-            await createUserWithEmailAndPassword(auth, cleanEmail, password);
-          } catch (createErr: any) {
-            // If already created but password was different on the backend, update it or bypass
-            throw new Error("Authentication sync issue. Contact system administrator.");
-          }
+          await createUserWithEmailAndPassword(auth, cleanEmail, password);
         } else {
           throw authErr;
         }
       }
 
-      // 4. Redirect successfully based on role profiling
-      alert("🔐 Access Granted! Redirecting to Terminal Matrix Dashboard...");
+      alert("🔐 Authentication verified. Routing session data nodes...");
       if (isAdmin) {
         router.push("/admin");
       } else {
@@ -74,11 +66,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 font-sans p-4">
-      <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-gray-200">
+    <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4 font-sans">
+      <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-black text-blue-900 uppercase tracking-wider italic">NEW GENERATION SCHOOL</h1>
-          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Terminal Ledger Gatekeeper</p>
+          <h1 className="text-xl font-black text-[#1E3A8A] uppercase tracking-wider italic">NEW GENERATION SCHOOL</h1>
+          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Terminal Matrix Ledger Access</p>
         </div>
 
         {error && (
@@ -89,17 +81,17 @@ export default function LoginPage() {
 
         <form onSubmit={handleLogin} className="space-y-4 font-bold text-gray-700">
           <div>
-            <label className="block text-[9px] uppercase tracking-wider text-gray-400 mb-1">Official Account Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full border-2 rounded-xl p-3 text-xs outline-none focus:border-blue-900 uppercase bg-gray-50 font-mono" placeholder="teacher@gmail.com" disabled={loading} />
+            <label className="block text-[9px] uppercase tracking-wider text-gray-400 mb-1">Account Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full border-2 border-black rounded-xl p-3 text-xs outline-none focus:border-[#1E3A8A] bg-[#F8FAFC]" placeholder="teacher@gmail.com" disabled={loading} />
           </div>
 
           <div>
-            <label className="block text-[9px] uppercase tracking-wider text-gray-400 mb-1">System Security Key</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border-2 rounded-xl p-3 text-xs outline-none focus:border-blue-900 bg-gray-50 font-mono" placeholder="••••••••" disabled={loading} />
+            <label className="block text-[9px] uppercase tracking-wider text-gray-400 mb-1">Security Passkey</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border-2 border-black rounded-xl p-3 text-xs outline-none focus:border-[#1E3A8A] bg-[#F8FAFC]" placeholder="••••••••" disabled={loading} />
           </div>
 
-          <button type="submit" disabled={loading} className="w-full bg-blue-900 hover:bg-black text-white py-3.5 rounded-xl font-black uppercase tracking-wider transition-all shadow-md mt-2 text-xs">
-            {loading ? "VALIDATING MATRIX CREDENTIALS..." : "Secure Login Control"}
+          <button type="submit" disabled={loading} className="w-full bg-[#1E3A8A] hover:bg-black text-white py-3.5 rounded-xl font-black uppercase tracking-wider shadow text-xs transition-colors mt-2">
+            {loading ? "VALIDATING SYSTEM MATRIX..." : "SECURE PORTAL LOGIN"}
           </button>
         </form>
       </div>

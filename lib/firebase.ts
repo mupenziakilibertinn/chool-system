@@ -2,14 +2,13 @@ import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-// Replace these placeholder lines with your real secret text values from Firebase Console
 const firebaseConfig = {
-  apiKey: "PASTE_YOUR_ACTUAL_FIREBASE_API_KEY_HERE",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID_NUMBER",
-  appId: "YOUR_APP_ID_STRING"
+  apiKey: "AIzaSy...", // Make sure this is your real, long string from Firebase
+  authDomain: "chool-system-bnmq.firebaseapp.com",
+  projectId: "chool-system-bnmq",
+  storageBucket: "chool-system-bnmq.appspot.com",
+  messagingSenderId: "123456789012", // Your actual sender ID digits
+  appId: "1:123456:web:abcd1234" // Your actual App ID string
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];

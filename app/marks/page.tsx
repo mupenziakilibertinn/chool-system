@@ -11,7 +11,7 @@ export default function MarksEntryPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [teacherData, setTeacherData] = useState<any>(null);
   const [selectedClass, setSelectedClass] = useState("");
-  const [selectedTerm, setSelectedTerm] = useState("term1"); // term1, term2, term3
+  const [selectedTerm, setSelectedTerm] = useState("term1");
   const [students, setStudents] = useState<any[]>([]);
   const [marks, setMarks] = useState<any>({});
   const [loading, setLoading] = useState(true);
@@ -24,7 +24,15 @@ export default function MarksEntryPage() {
         if (!docSnap.empty) {
           const tInfo = docSnap.docs[0].data();
           setTeacherData(tInfo);
-          setSelectedClass(tInfo.classes && tInfo.classes.length > 0 ? tInfo.classes[0] : "P1");
+          
+          // Set initial default class based on authority profile rules
+          if (tInfo.isAdmin) {
+            setSelectedClass("P1");
+          } else if (tInfo.allocations && tInfo.allocations.length > 0) {
+            setSelectedClass(tInfo.allocations[0].class);
+          } else {
+            setSelectedClass(tInfo.classes && tInfo.classes.length > 0 ? tInfo.classes[0] : "P1");
+          }
         }
       }
       setLoading(false);
@@ -92,9 +100,20 @@ export default function MarksEntryPage() {
   if (loading) return <div className="p-10 text-center font-bold">LOADING LESSON SCHEDULER...</div>;
   if (!teacherData) return <div className="p-10 text-center text-red-500 font-bold">ACCESS DENIED.</div>;
 
-  const accessibleClasses = teacherData.isAdmin ? allSystemClasses : teacherData.classes;
-  const accessibleSubjects = teacherData.isAdmin ? allSystemSubjects : teacherData.subjects;
-  const maxMark = selectedClass === "P6" ? 50 : 25;
+  // Admin sees all. Regular teachers see unique distinct values based on assignments.
+  let classesToDisplay: string[] = [];
+  let subjectsToDisplay: string[] = [];
+
+  if (teacherData.isAdmin) {
+    classesToDisplay = allSystemClasses;
+    subjectsToDisplay = allSystemSubjects;
+  } else {
+    // Collect all dynamic allocations
+    const allocs = teacherData.allocations || [];
+    classesToDisplay = Array.from(new Set(allocs.map((a: any) => a.class)));
+    // Filter subject rows dynamically depending on what class row drop-down is chosen
+    subjectsToDisplay = allocs.filter((a: any) => a.class === selectedClass).map((a: any) => a.subject);
+  }
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen text-xs font-sans">
@@ -102,17 +121,21 @@ export default function MarksEntryPage() {
         <h1 className="text-sm font-black text-blue-900 uppercase tracking-wider mb-1">
           Terminal Evaluation Matrix {teacherData.isAdmin && "(ADMIN)"}
         </h1>
-        <p className="text-gray-400 font-bold uppercase text-[9px] mb-4">Account: {userEmail}</p>
+        <p className="text-gray-400 font-bold uppercase text-[9px] mb-4">Account Profile: {userEmail}</p>
 
         <div className="mb-4 flex gap-4 items-center bg-gray-50 p-3 rounded-xl border">
           <div>
-            <span className="font-bold uppercase text-gray-500 mr-2">Class:</span>
+            <span className="font-bold uppercase text-gray-500 mr-2">Select Active Class:</span>
             <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="p-2 border rounded-xl font-bold bg-white text-blue-900">
-              {accessibleClasses.map((c: string) => <option key={c} value={c}>{c}</option>)}
+              {classesToDisplay.length === 0 ? (
+                <option value="">No Classes Assigned</option>
+              ) : (
+                classesToDisplay.map((c: string) => <option key={c} value={c}>{c}</option>)
+              )}
             </select>
           </div>
           <div>
-            <span className="font-bold uppercase text-gray-500 mr-2">Active Recording Term:</span>
+            <span className="font-bold uppercase text-gray-500 mr-2">Active Tracking Term:</span>
             <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="p-2 border border-green-600 rounded-xl font-black bg-white text-green-700">
               <option value="term1">TERM 1</option>
               <option value="term2">TERM 2</option>
@@ -121,47 +144,53 @@ export default function MarksEntryPage() {
           </div>
         </div>
 
-        {accessibleSubjects.map((sub: string) => {
-          if (selectedClass === "P6" && sub === "French") return null; 
-          const currentMax = sub === "French" ? 25 : 50;
+        {subjectsToDisplay.length === 0 ? (
+          <div className="p-10 text-center text-gray-400 font-bold italic border-2 border-dashed rounded-xl bg-gray-50">
+            No subjects assigned to you for class level {selectedClass}. Contact Admin to verify your mapping matrix layout.
+          </div>
+        ) : (
+          subjectsToDisplay.map((sub: string) => {
+            if (selectedClass === "P6" && sub === "French") return null; 
+            const currentMax = sub === "French" ? 25 : 50;
 
-          return (
-            <div key={sub} className="mb-8 border p-4 rounded-xl bg-gray-50">
-              <div className="flex justify-between items-center mb-3 border-b pb-2">
-                <h2 className="text-xs font-black text-blue-950 uppercase tracking-wide">{sub} — {selectedTerm.toUpperCase()}</h2>
-                <button onClick={() => saveSubjectMarks(sub)} className="bg-blue-900 hover:bg-green-600 text-white font-black px-4 py-1.5 rounded-lg uppercase text-[9px]">
-                  Save {sub} Marks
-                </button>
+            return (
+              <div key={sub} className="mb-8 border p-4 rounded-xl bg-gray-50">
+                <div className="flex justify-between items-center mb-3 border-b pb-2">
+                  <h2 className="text-xs font-black text-blue-950 uppercase tracking-wide">{sub} — {selectedTerm.toUpperCase()}</h2>
+                  <button onClick={() => saveSubjectMarks(sub)} className="bg-blue-900 hover:bg-green-600 text-white font-black px-4 py-1.5 rounded-lg uppercase text-[9px]">
+                    Save {sub} Marks
+                  </button>
+                </div>
+
+                <table className="w-full text-left bg-white border font-bold text-gray-700">
+                  <thead>
+                    <tr className="bg-gray-100 font-black uppercase border-b text-gray-500 text-[9px]">
+                      <th className="p-2 w-1/2">Pupil Name</th>
+                      <th className="p-2 text-center">Test Score (/{currentMax})</th>
+                      <th className="p-2 text-center">Mid-Term Score (/{currentMax})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {students.map(st => {
+                      const stMarks = marks[st.id]?.[sub] || {};
+                      return (
+                        <tr key={st.id} className="border-b uppercase">
+                          <td className="p-2 font-black text-gray-900">{st.name}</td>
+                          <td className="p-2 text-center">
+                            <input type="number" min="0" max={currentMax} value={stMarks[`${selectedTerm}_t1`] ?? ""} onChange={(e) => handleInputChange(st.id, sub, "t1", e.target.value)} className="border p-1 w-16 text-center rounded bg-gray-50" />
+                          </td>
+                          <td className="p-2 text-center">
+                            <input type="number" min="0" max={currentMax} value={stMarks[`${selectedTerm}_m1`] ?? ""} onChange={(e) => handleInputChange(st.id, sub, "m1", e.target.value)} className="border p-1 w-16 text-center rounded bg-gray-50" />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-
-              <table className="w-full text-left bg-white border font-bold text-gray-700">
-                <thead>
-                  <tr className="bg-gray-100 font-black uppercase border-b text-gray-500 text-[9px]">
-                    <th className="p-2 w-1/2">Student Name</th>
-                    <th className="p-2 text-center">Test Score (/{currentMax})</th>
-                    <th className="p-2 text-center">Mid-Term Score (/{currentMax})</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map(st => {
-                    const stMarks = marks[st.id]?.[sub] || {};
-                    return (
-                      <tr key={st.id} className="border-b uppercase">
-                        <td className="p-2 font-black text-gray-900">{st.name}</td>
-                        <td className="p-2 text-center">
-                          <input type="number" min="0" max={currentMax} value={stMarks[`${selectedTerm}_t1`] ?? ""} onChange={(e) => handleInputChange(st.id, sub, "t1", e.target.value)} className="border p-1 w-16 text-center rounded bg-gray-50" />
-                        </td>
-                        <td className="p-2 text-center">
-                          <input type="number" min="0" max={currentMax} value={stMarks[`${selectedTerm}_m1`] ?? ""} onChange={(e) => handleInputChange(st.id, sub, "m1", e.target.value)} className="border p-1 w-16 text-center rounded bg-gray-50" />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );

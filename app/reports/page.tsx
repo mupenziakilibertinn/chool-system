@@ -20,7 +20,6 @@ export default function ReportsPage() {
         const studentList = studentSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => a.name.localeCompare(b.name));
         setStudents(studentList);
 
-        // Fast parallel fetch setup for student subcollections
         let marksData: any = {};
         await Promise.all(studentList.map(async (student) => {
           marksData[student.id] = {};
@@ -32,7 +31,7 @@ export default function ReportsPage() {
         
         setAllMarks(marksData);
       } catch (err) {
-        console.error("Error collecting terminal records:", err);
+        console.error("Error pulling database records:", err);
       }
       setLoading(false);
     };
@@ -53,7 +52,7 @@ export default function ReportsPage() {
         </div>
 
         {loading ? (
-          <div className="text-center py-10 font-black text-blue-900 uppercase tracking-widest animate-pulse">Compiling class analytics...</div>
+          <div className="text-center py-10 font-black text-blue-900 uppercase tracking-widest">Processing Cloud Analytics...</div>
         ) : (
           <div className="space-y-4">
             <button onClick={() => window.print()} className="w-full bg-blue-900 text-white font-black py-4 rounded-xl uppercase tracking-wider shadow-md hover:bg-black transition-all">
@@ -79,7 +78,7 @@ export default function ReportsPage() {
                   }} 
                   className="bg-gray-100 hover:bg-blue-900 hover:text-white text-blue-900 px-4 py-2 rounded-lg font-black uppercase transition-all tracking-wide text-[10px]"
                 >
-                  Print Card
+                  Print Report Card
                 </button>
               </div>
             ))}
@@ -87,7 +86,6 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {/* Printing Container layout engine */}
       <div className="report-only">
         {students.map(student => {
           let aggregateScoreSum = 0;

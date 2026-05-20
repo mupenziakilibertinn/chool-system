@@ -14,19 +14,21 @@ export default function AdminPage() {
   const [tClasses, setTClasses] = useState<string[]>([]);
   const [tSubjects, setTSubjects] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [dbStatus, setDbStatus] = useState("Checking database link...");
 
   useEffect(() => { 
     loadStudents(); 
   }, [selectedClass, tab]);
 
   const loadStudents = async () => {
-    if (tab !== "students") return;
     try {
       const q = query(collection(db, "students"), where("class", "==", selectedClass));
       const snap = await getDocs(q);
       setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => a.name.localeCompare(b.name)));
-    } catch (e) {
-      console.error("Error loading roster:", e);
+      setDbStatus("CONNECTED ✅");
+    } catch (e: any) {
+      setDbStatus("CONNECTION ERROR ❌ (Check Firebase Keys!)");
+      console.error("Database sync error:", e);
     }
   };
 
@@ -39,7 +41,6 @@ export default function AdminPage() {
       const batch = writeBatch(db);
       
       names.forEach(n => {
-        // Create a fresh document reference with an auto-generated ID
         const studentRef = doc(collection(db, "students"));
         batch.set(studentRef, {
           name: n.toUpperCase(),
@@ -47,14 +48,12 @@ export default function AdminPage() {
         });
       });
 
-      // Commit all operations at once in a single network request
       await batch.commit();
-      
       setBulkNames(""); 
       await loadStudents();
-      alert(`⚡ Supercharge Save Complete! Registered ${names.length} students into ${selectedClass} instantly.`);
+      alert(`⚡ Upload Success! Registered ${names.length} students into ${selectedClass} instantly.`);
     } catch (err: any) {
-      alert("Database Upload Failed: " + err.message);
+      alert("❌ Critical Cloud Database Error: " + err.message);
     }
     setIsSaving(false);
   };
@@ -69,7 +68,7 @@ export default function AdminPage() {
         subjects: tSubjects 
       });
       setTEmail(""); setTClasses([]); setTSubjects([]);
-      alert("✅ Teacher Configuration Set Successfully!");
+      alert("✅ Teacher Permissions Updated Successfully!");
     } catch (err: any) {
       alert("Action Failed: " + err.message);
     }
@@ -79,7 +78,10 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-xs pb-10">
       <div className="bg-blue-900 text-white p-4 flex justify-between items-center shadow-xl">
-        <h1 className="font-black uppercase tracking-wider italic text-sm">NGS ADMIN PORTAL</h1>
+        <div>
+          <h1 className="font-black uppercase tracking-wider italic text-sm">NGS ADMIN PORTAL</h1>
+          <p className="text-[9px] text-green-300 font-bold uppercase tracking-widest mt-0.5">Cloud Sync: {dbStatus}</p>
+        </div>
         <div className="flex gap-2">
           {["students", "teachers"].map(t => (
             <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-lg uppercase font-black text-[9px] tracking-wider transition-colors ${tab === t ? "bg-white text-blue-900" : "bg-blue-800 hover:bg-blue-700"}`}>{t}</button>
@@ -112,15 +114,15 @@ export default function AdminPage() {
                 className="w-full bg-blue-900 hover:bg-green-600 text-white py-3 rounded-xl font-black uppercase tracking-wide shadow-md disabled:bg-gray-400 transition-colors"
                 disabled={isSaving}
               >
-                {isSaving ? "SAVING BATCH LIST TO CLOUD..." : `INSTANT UPLOAD TO ${selectedClass}`}
+                {isSaving ? "COMMITTING BATCH DATA TO CLOUD..." : `INSTANT UPLOAD TO ${selectedClass}`}
               </button>
             </div>
             <div className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 h-80 overflow-y-auto">
-              <h2 className="font-black text-blue-900 uppercase tracking-wider mb-3">Enrolled Roster ({students.length})</h2>
+              <h2 className="font-black text-blue-900 uppercase tracking-wider mb-3">Verified Enrolled Roster ({students.length})</h2>
               {students.map(s => (
                 <div key={s.id} className="border-b py-2 flex justify-between items-center font-bold text-gray-700 uppercase">
                   <span>{s.name}</span>
-                  <button onClick={async () => { if(confirm("Remove student?")) { await deleteDoc(doc(db, "students", s.id)); loadStudents(); } }} className="text-red-500 hover:underline font-black text-[10px]">DELETE</button>
+                  <button onClick={async () => { if(confirm("Remove student permanent?")) { await deleteDoc(doc(db, "students", s.id)); loadStudents(); } }} className="text-red-500 hover:underline font-black text-[10px]">DELETE</button>
                 </div>
               ))}
             </div>
@@ -146,7 +148,7 @@ export default function AdminPage() {
               </div>
             </div>
             <button onClick={saveTeacher} className="w-full bg-blue-900 hover:bg-green-600 text-white py-3 rounded-xl font-black uppercase tracking-wide shadow-md transition-colors" disabled={isSaving}>
-              {isSaving ? "COMMITTING PERMISSIONS..." : "Assign System Roles"}
+              {isSaving ? "SAVING SYSTEM RULES..." : "Assign System Roles"}
             </button>
           </div>
         )}

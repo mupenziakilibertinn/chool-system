@@ -2,115 +2,155 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
-import { schoolSubjects, calculateAverages, getStudentComment } from "../../lib/marksLogic";
+
+const schoolSubjects = ["Mathematics", "Kinyarwanda", "English", "SET", "SRE", "Social Studies", "French"];
 
 export default function ReportsPage() {
-  const [students, setStudents] = useState<any[]>([]);
   const [selectedClass, setSelectedClass] = useState("P5");
+  const [students, setStudents] = useState<any[]>([]);
   const [allMarks, setAllMarks] = useState<any>({});
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const loadData = async () => {
+    const fetchClassData = async () => {
       setLoading(true);
-      const q = query(collection(db, "students"), where("class", "==", selectedClass));
-      const snap = await getDocs(q);
-      const studentList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      
-      const marksData: any = {};
-      for (const student of studentList) {
-        const studentMarks: any = {};
-        for (const sub of schoolSubjects) {
-          const mSnap = await getDoc(doc(db, "students", student.id, "marks", sub.name));
-          if (mSnap.exists()) studentMarks[sub.name] = mSnap.data();
+      try {
+        const q = query(collection(db, "students"), where("class", "==", selectedClass));
+        const studentSnap = await getDocs(q);
+        const studentList = studentSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => a.name.localeCompare(b.name));
+        setStudents(studentList);
+
+        let marksData: any = {};
+        for (const student of studentList) {
+          marksData[student.id] = {};
+          for (const sub of schoolSubjects) {
+            const markSnap = await getDoc(doc(db, "students", student.id, "marks", sub));
+            if (markSnap.exists()) {
+              marksData[student.id][sub] = markSnap.data();
+            }
+          }
         }
-        marksData[student.id] = studentMarks;
+        setAllMarks(marksData);
+      } catch (err) {
+        console.error("Error collecting terminal records:", err);
       }
-      setStudents(studentList);
-      setAllMarks(marksData);
       setLoading(false);
     };
-    loadData();
+    fetchClassData();
   }, [selectedClass]);
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 print:p-0">
-      <div className="max-w-4xl mx-auto mb-6 no-print bg-white p-6 rounded-xl shadow-lg flex gap-4 items-center">
-        <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="p-3 border-2 border-blue-900 rounded-lg font-bold outline-none">
-          {["P1", "P2", "P3", "P4", "P5", "P6"].map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <button onClick={() => window.print()} className="bg-blue-900 text-white px-6 py-3 rounded-lg font-black uppercase tracking-widest hover:bg-green-700 transition">Print All Reports</button>
+    <div className="min-h-screen bg-gray-50 font-sans p-6 text-xs pb-20">
+      <div className="max-w-5xl mx-auto no-print">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6 flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-black text-blue-900 uppercase tracking-wider italic">NGS Progress Ledger</h1>
+            <p className="text-[10px] text-gray-400 uppercase font-bold mt-0.5">Bulk grading review and print distributions</p>
+          </div>
+          <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="p-2 border-2 border-blue-900 bg-white rounded-xl font-black text-blue-900 outline-none">
+            {["P1", "P2", "P3", "P4", "P5", "P6"].map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-10 font-black text-blue-900 uppercase tracking-widest">Compiling class analytics...</div>
+        ) : (
+          <div className="space-y-4">
+            <button onClick={() => window.print()} className="w-full bg-blue-900 text-white font-black py-4 rounded-xl uppercase tracking-wider shadow-md hover:bg-black transition-all">
+              Print Entire Class Ledger ({students.length} Cards)
+            </button>
+
+            {students.map(student => {
+              let grandTotal = 0;
+              let countedSubjects = 0;
+
+              return (
+                <div key={student.id} className="bg-white p-4 rounded-xl border shadow-sm flex justify-between items-center">
+                  <div>
+                    <span className="font-black text-sm text-blue-900 uppercase block">{student.name}</span>
+                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Level Track: {selectedClass}</span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      const printContent = document.getElementById(`card-${student.id}`)?.innerHTML;
+                      if (printContent) {
+                        const originalHTML = document.body.innerHTML;
+                        document.body.innerHTML = printContent;
+                        window.print();
+                        document.body.innerHTML = originalHTML;
+                        window.location.reload();
+                      }
+                    }} 
+                    className="bg-gray-100 hover:bg-blue-900 hover:text-white text-blue-900 px-4 py-2 rounded-lg font-black uppercase transition-all tracking-wide"
+                  >
+                    Print Report Card
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {students.map((student) => {
-        let grandTotal = 0;
-        let subCount = 0;
+      {/* Printing Container layout engine */}
+      <div className="report-only">
+        {students.map(student => {
+          let aggregateScoreSum = 0;
+          let evaluatedCoursesCount = 0;
 
-        return (
-          <div key={student.id} className="bg-white w-[210mm] mx-auto p-12 border-[10px] border-double border-blue-900 shadow-2xl mb-20 page-break relative">
-            <div className="text-center border-b-4 border-green-600 pb-4 mb-6">
-              <h1 className="text-4xl font-black text-blue-900 uppercase">New Generation School</h1>
-              <p className="text-green-700 font-bold italic text-sm">Preparation, Praying, Politeness and Performance</p>
-              <div className="mt-4 bg-blue-900 text-white py-1 font-black uppercase text-sm tracking-widest">Student Progress Report</div>
+          return (
+            <div key={student.id} id={`card-${student.id}`} className="page-break p-12 bg-white max-w-[210mm] mx-auto min-h-[297mm] border-[8px] border-double border-blue-900 font-sans">
+              <h1 className="text-center text-3xl font-black text-blue-900 uppercase tracking-wide border-b-4 border-green-600 pb-2">New Generation School</h1>
+              <p className="text-center text-[9px] font-bold text-gray-400 tracking-widest uppercase mt-1 mb-6">Student Terminal Progress Record</p>
+              
+              <div className="flex justify-between border-b-2 pb-2 mb-6 font-black uppercase text-[11px] text-gray-800">
+                <span>Pupil: {student.name}</span>
+                <span>Level: {selectedClass}</span>
+              </div>
+
+              <table className="w-full border-collapse border-2 border-black text-xs font-bold">
+                <thead className="bg-gray-100 font-black uppercase text-[10px] tracking-wider text-center">
+                  <tr>
+                    <th className="border-2 border-black p-3 text-left w-1/2">Academic Courses</th>
+                    <th className="border-2 border-black p-3 w-1/2">Term Evaluation Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schoolSubjects.map(sub => {
+                    const m = allMarks[student.id]?.[sub] || { t1: 0, m1: 0, t2: 0, m2: 0, exam: 0 };
+                    const finalAvg = (m.t1 + m.m1 + m.t2 + m.m2 + (m.exam * 2)) / 6;
+                    
+                    aggregateScoreSum += finalAvg;
+                    evaluatedCoursesCount++;
+
+                    return (
+                      <tr key={sub} className="uppercase">
+                        <td className="border-2 border-black p-3 text-left tracking-wide font-black text-blue-900">{sub}</td>
+                        <td className="border-2 border-black p-3 text-center text-sm font-black">
+                          {finalAvg > 0 ? finalAvg.toFixed(1) : "0.0"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-blue-950 text-white font-black text-sm uppercase">
+                    <td className="border-2 border-black p-3 text-right">Aggregate System Average</td>
+                    <td className="border-2 border-black p-3 text-center text-base">
+                      {evaluatedCoursesCount > 0 ? (aggregateScoreSum / evaluatedCoursesCount).toFixed(1) : "0.0"}%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div className="mt-12 p-4 border-2 border-dashed border-blue-900 rounded-xl bg-gray-50 text-xs italic text-gray-700">
+                <span className="font-black not-italic underline text-blue-900 uppercase tracking-wider block mb-1">Head Teacher Remarks:</span>
+                {evaluatedCoursesCount > 0 && (aggregateScoreSum / evaluatedCoursesCount) >= 50 
+                  ? "Satisfactory progression tracking. Keep maintaining focal determination metrics." 
+                  : "Requires intentional instructional interventions and focused academic reinforcement."}
+              </div>
             </div>
-
-            <div className="flex justify-between font-black text-blue-900 mb-8 uppercase text-xs">
-              <p>Name: <span className="border-b border-black">{student.name}</span></p>
-              <p>Class: {student.class}</p>
-              <p>Term: Annual / 2026</p>
-            </div>
-
-            <table className="w-full border-collapse border-2 border-black">
-              <thead>
-                <tr className="bg-gray-100 font-black text-[10px] uppercase">
-                  <th className="border border-black p-2 text-left">Subject</th>
-                  <th className="border border-black p-2">T1 (/50)</th>
-                  <th className="border border-black p-2">M1 (/50)</th>
-                  <th className="border border-black p-2">T2 (/50)</th>
-                  <th className="border border-black p-2">M2 (/50)</th>
-                  <th className="border border-black p-2">Avg (/100)</th>
-                </tr>
-              </thead>
-              <tbody className="font-bold text-xs uppercase">
-                {schoolSubjects.map((sub) => {
-                  const m = allMarks[student.id]?.[sub.name] || { t1: 0, m1: 0, t2: 0, m2: 0 };
-                  const avgs = calculateAverages(m.t1, m.m1, m.t2, m.m2);
-                  grandTotal += avgs.annualAvg;
-                  subCount++;
-                  return (
-                    <tr key={sub.id}>
-                      <td className="border border-black p-2 bg-gray-50">{sub.name}</td>
-                      <td className="border border-black p-2 text-center">{m.t1}</td>
-                      <td className="border border-black p-2 text-center">{m.m1}</td>
-                      <td className="border border-black p-2 text-center">{m.t2}</td>
-                      <td className="border border-black p-2 text-center">{m.m2}</td>
-                      <td className="border border-black p-2 text-center bg-blue-50">{(avgs.annualAvg).toFixed(1)}</td>
-                    </tr>
-                  );
-                })}
-                <tr className="bg-blue-900 text-white font-black">
-                  <td colSpan={5} className="border border-black p-2 text-right">PERCENTAGE AVERAGE</td>
-                  <td className="border border-black p-2 text-center">{(grandTotal / subCount).toFixed(1)}%</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div className="mt-8 p-4 border-2 border-blue-50 rounded-xl italic text-blue-900 text-sm">
-              <span className="font-black not-italic uppercase">Remarks:</span> {getStudentComment(grandTotal / subCount)}
-            </div>
-
-            <div className="mt-20 flex justify-between items-end">
-              <div className="text-center"><div className="border-b border-black w-40 mb-1"></div><p className="text-[10px] font-black">CLASS TEACHER</p></div>
-              <div className="w-24 h-24 rounded-full border-4 border-blue-50 flex items-center justify-center text-[8px] text-blue-200 font-black uppercase text-center rotate-12">School Stamp</div>
-              <div className="text-center"><div className="border-b border-black w-40 mb-1"></div><p className="text-[10px] font-black">HEADTEACHER</p></div>
-            </div>
-          </div>
-        );
-      })}
-
-      <style jsx global>{`
-        @media print { .no-print { display: none; } .page-break { page-break-after: always; } }
-      `}</style>
+          );
+        })}
+      </div>
     </div>
   );
 }

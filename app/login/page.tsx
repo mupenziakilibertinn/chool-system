@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, query, where } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -20,21 +20,26 @@ export default function LoginPage() {
     const cleanEmail = email.trim().toLowerCase();
 
     try {
-      // Corrected single document lookup checking reference exists validation rules
-      const teacherDocRef = doc(db, "teachers", cleanEmail);
-      const teacherSnap = await getDoc(teacherDocRef);
+      let isAdmin = cleanEmail === "mupenziakilibertinn@gmail.com";
+      let requiredPassword = "";
+      let isOwner = false;
 
-      if (!teacherSnap.exists()) {
-        throw new Error("ACCESS DENIED: Email address is not registered in our system.");
-      }
-
-      const teacherData = teacherSnap.data();
-      const isAdmin = teacherData?.isAdmin || cleanEmail === "mupenziakili@gmail.com";
-
-      // Match master rule parameters
-      let requiredPassword = "123456";
       if (isAdmin) {
         requiredPassword = "Mupenzi2004";
+      } else {
+        // Query database to check if this user is a regular teacher or a registered school owner
+        const teacherSnap = await getDocs(query(collection(db, "teachers"), where("email", "==", cleanEmail)));
+        if (teacherSnap.empty) {
+          throw new Error("ACCESS DENIED: Email address is not registered in our system.");
+        }
+        
+        const teacherData = teacherSnap.docs[0].data();
+        if (teacherData.role === "owner") {
+          isOwner = true;
+          requiredPassword = "Newgeneration";
+        } else {
+          requiredPassword = "123456"; 
+        }
       }
 
       if (password !== requiredPassword) {
@@ -52,7 +57,8 @@ export default function LoginPage() {
       }
 
       alert("🔐 Authentication verified. Routing session data nodes...");
-      if (isAdmin) {
+      
+      if (isAdmin || isOwner) {
         router.push("/admin");
       } else {
         router.push("/marks");
@@ -60,7 +66,7 @@ export default function LoginPage() {
 
     } catch (err: any) {
       setError(err.message);
-    } finally {
+    } finaly {
       setLoading(false);
     }
   };
@@ -70,11 +76,11 @@ export default function LoginPage() {
       <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
         <div className="text-center mb-6">
           <h1 className="text-xl font-black text-[#1E3A8A] uppercase tracking-wider italic">NEW GENERATION SCHOOL</h1>
-          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Terminal Matrix Ledger Access</p>
+          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Terminal Master Ledger Login</p>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 font-bold uppercase text-[10px] rounded">
+          <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 font-bold uppercase text-[10px] rounded animate-pulse">
             {error}
           </div>
         )}
@@ -91,7 +97,7 @@ export default function LoginPage() {
           </div>
 
           <button type="submit" disabled={loading} className="w-full bg-[#1E3A8A] hover:bg-black text-white py-3.5 rounded-xl font-black uppercase tracking-wider shadow text-xs transition-colors mt-2">
-            {loading ? "VALIDATING SYSTEM MATRIX..." : "SECURE PORTAL LOGIN"}
+            {loading ? "VALIDATING CORES..." : "SECURE PORTAL LOGIN"}
           </button>
         </form>
       </div>

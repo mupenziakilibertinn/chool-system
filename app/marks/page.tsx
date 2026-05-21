@@ -26,7 +26,7 @@ export default function MarksEntryPage() {
         if (!docSnap.empty) {
           const tInfo = docSnap.docs[0].data();
           setTeacherData(tInfo);
-          setSelectedClass(tInfo.allocations?.[0]?.class || tInfo.classTeacherOf || "P1");
+          setSelectedClass(tInfo.classes?.[0] || tInfo.classTeacherOf || "P1");
         }
       }
       setLoading(false);
@@ -60,6 +60,7 @@ export default function MarksEntryPage() {
   const handleInputChange = (studentId: string, studentIndex: number, subject: string, field: string, value: string) => {
     const maxLimit = (selectedClass !== "P6" && subject === "French") ? 25 : 50;
 
+    // Handle excel block copy/paste string split inputs safely
     if (value.includes("\n") || value.includes("\t")) {
       const scoresArray = value.split(/[\n\t]+/).map(s => s.trim()).filter(s => s !== "");
       setMarks((prev: any) => {
@@ -67,10 +68,12 @@ export default function MarksEntryPage() {
         scoresArray.forEach((scoreVal, arrayIdx) => {
           const targetStudent = students[studentIndex + arrayIdx];
           if (targetStudent) {
-            if (Number(scoreVal) > maxLimit) return;
-            if (!updated[targetStudent.id]) updated[targetStudent.id] = {};
-            if (!updated[targetStudent.id][subject]) updated[targetStudent.id][subject] = {};
-            updated[targetStudent.id][subject][`${selectedTerm}_${field}`] = scoreVal;
+            const numVal = Number(scoreVal);
+            if (!isNaN(numVal) && numVal <= maxLimit) {
+              if (!updated[targetStudent.id]) updated[targetStudent.id] = {};
+              if (!updated[targetStudent.id][subject]) updated[targetStudent.id][subject] = {};
+              updated[targetStudent.id][subject][`${selectedTerm}_${field}`] = scoreVal;
+            }
           }
         });
         return updated;
@@ -78,8 +81,9 @@ export default function MarksEntryPage() {
       return;
     }
 
+    // BLOCK DIRECT ENTRY TYPO ERRORS HIGHER THAN MAXIMUM ALLOWED CEILING
     if (Number(value) > maxLimit) {
-      alert(`❌ CEILING EXCEEDED: Marks cannot be greater than ${maxLimit}!`);
+      alert(`❌ INVALID ENTRY: Input values cannot exceed the limit of ${maxLimit}!`);
       return;
     }
 
@@ -115,41 +119,41 @@ export default function MarksEntryPage() {
           [`${selectedTerm}_m2`]: Number(subData[`${selectedTerm}_m2`] || 0),
         }, { merge: true });
       }));
-      alert(`✅ Marks saved for ${subject}!`);
+      alert(`✅ Marks securely saved for ${subject}!`);
     } catch (err: any) { alert("Error: " + err.message); }
   };
 
-  if (loading) return <div className="p-10 text-center font-bold text-blue-900 uppercase">Loading Data Matrix...</div>;
+  if (loading) return <div className="p-10 text-center font-black text-blue-900 uppercase">Loading Data Matrix...</div>;
   if (!teacherData) return <div className="p-10 text-center text-red-500 font-bold uppercase">DENIED.</div>;
 
   const isClassTeacher = teacherData.classTeacherOf && teacherData.classTeacherOf !== "None";
-  const subjectsToDisplay = teacherData.isAdmin ? allSystemSubjects : (teacherData.allocations || []).filter((a: any) => a.class === selectedClass).map((a: any) => a.subject);
+  const subjectsToDisplay = teacherData.isAdmin ? allSystemSubjects : (teacherData.subjects || []);
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen text-xs font-sans text-gray-800">
-      <div className="max-w-5xl mx-auto bg-white p-6 rounded-2xl shadow-sm border">
+      <div className="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <div className="flex justify-between items-start border-b pb-4 mb-4">
           <div>
-            <h1 className="text-base font-black text-blue-900 uppercase">NGS Faculty Entry Deck</h1>
-            <p className="text-gray-400 font-bold uppercase text-[9px]">Logged in as: {userEmail}</p>
+            <h1 className="text-base font-black text-blue-900 uppercase">TERMINAL MARK INPUT MATRIX</h1>
+            <p className="text-gray-400 font-bold uppercase text-[9px]">ACCOUNT PROFILE: {userEmail}</p>
           </div>
           {isClassTeacher && (
-            <button onClick={() => router.push("/admin?tab=reports")} className="bg-green-700 hover:bg-black text-white font-black px-4 py-2.5 rounded-xl uppercase text-[10px] tracking-wider transition-all shadow">
+            <button onClick={() => router.push("/admin?tab=reports")} className="bg-[#1E3A8A] hover:bg-black text-white font-black px-4 py-2.5 rounded-xl uppercase text-[10px] tracking-wider transition-all shadow">
               📋 Print Class Report Cards ({teacherData.classTeacherOf})
             </button>
           )}
         </div>
 
-        <div className="mb-6 flex gap-4 items-center bg-gray-50 p-4 rounded-xl border">
+        <div className="mb-6 flex gap-4 items-center bg-gray-50 p-4 rounded-xl border border-gray-300">
           <div>
-            <span className="font-black uppercase text-gray-500 mr-2">Stream:</span>
-            <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="p-2 border-2 border-blue-900 rounded-lg font-black bg-white text-blue-900 text-xs">
-              {Array.from(new Set((teacherData.allocations || []).map((a: any) => a.class).concat(isClassTeacher ? [teacherData.classTeacherOf] : []))).map((c: any) => <option key={c} value={c}>{c}</option>)}
+            <span className="font-black uppercase text-gray-500 mr-2">CHOOSE CLASS:</span>
+            <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="p-2 border-2 border-blue-900 rounded-lg font-black bg-white text-blue-900 text-xs px-3">
+              {Array.from(new Set((teacherData.classes || []).concat(isClassTeacher ? [teacherData.classTeacherOf] : []))).map((c: any) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>
-            <span className="font-black uppercase text-gray-500 mr-2">Academic Term:</span>
-            <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="p-2 border-2 border-green-600 rounded-lg font-black bg-white text-green-700 text-xs">
+            <span className="font-black uppercase text-gray-500 mr-2">TARGET ACADEMIC TERM:</span>
+            <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="p-2 border-2 border-green-700 rounded-lg font-black bg-white text-green-700 text-xs px-3">
               <option value="term1">TERM 1</option>
               <option value="term2">TERM 2</option>
               <option value="term3">TERM 3</option>
@@ -162,43 +166,43 @@ export default function MarksEntryPage() {
           const maxVal = (selectedClass !== "P6" && sub === "French") ? 25 : 50;
 
           return (
-            <div key={sub} className="mb-8 border p-4 rounded-xl bg-white shadow-sm overflow-x-auto">
-              <div className="flex justify-between items-center mb-3 border-b pb-2 min-w-[600px]">
+            <div key={sub} className="mb-8 border-2 border-gray-300 p-5 rounded-2xl bg-white overflow-x-auto shadow-sm">
+              <div className="flex justify-between items-center mb-4 border-b pb-2 min-w-[600px]">
                 <h2 className="text-xs font-black text-blue-900 uppercase">{sub} &mdash; {selectedTerm.toUpperCase()}</h2>
-                <button onClick={() => saveSubjectMarks(sub)} className="bg-blue-900 text-white font-black px-4 py-2 rounded-lg uppercase text-[10px]">Save {sub}</button>
+                <button onClick={() => saveSubjectMarks(sub)} className="bg-[#1E3A8A] text-white font-black px-5 py-2.5 rounded-xl uppercase text-[10px] tracking-wider hover:bg-black transition-colors shadow-sm">{sub === "Kinyarwanda" ? "SAVE KINYARWANDA MARKS" : `SAVE ${sub.toUpperCase()} MARKS`}</button>
               </div>
               <table className="w-full text-left font-bold text-gray-700 min-w-[600px]">
                 <thead>
-                  <tr className="bg-gray-50 uppercase text-[8px] text-gray-500 border-b text-center">
-                    <th className="p-2 text-left border-r w-1/3">Pupil Name</th>
-                    <th className="p-2 border-r bg-blue-50/50" colSpan={2}>MID-TERM ASSESSMENT 1</th>
-                    <th className="p-2 bg-green-50/50" colSpan={2}>MID-TERM ASSESSMENT 2</th>
+                  <tr className="bg-gray-50 uppercase text-[9px] text-gray-500 border-b-2 border-black text-center">
+                    <th className="p-2.5 text-left border-r font-black text-gray-900 w-1/3">PUPIL NAME</th>
+                    <th className="p-2 border-r bg-blue-50/40" colSpan={2}>MID-TERM ASSESSMENT 1</th>
+                    <th className="p-2 bg-green-50/40" colSpan={2}>MID-TERM ASSESSMENT 2</th>
                   </tr>
-                  <tr className="bg-gray-100 uppercase text-[8px] text-gray-400 border-b text-center">
-                    <th className="p-2 text-left border-r"></th>
-                    <th className="p-1 border-r">Test 1 (/{maxVal})</th>
-                    <th className="p-1 border-r">Mid 1 (/{maxVal})</th>
-                    <th className="p-1 border-r">Test 2 (/{maxVal})</th>
-                    <th className="p-1">Mid 2 (/{maxVal})</th>
+                  <tr className="bg-gray-100 uppercase text-[8px] text-gray-400 border-b-2 border-black text-center">
+                    <th className="p-2 border-r"></th>
+                    <th className="p-1 border-r font-black">TEST SCORE (/{maxVal})</th>
+                    <th className="p-1 border-r font-black">MID-TERM SCORE (/{maxVal})</th>
+                    <th className="p-1 border-r font-black">TEST SCORE (/{maxVal})</th>
+                    <th className="p-1 font-black">MID-TERM SCORE (/{maxVal})</th>
                   </tr>
                 </thead>
                 <tbody>
                   {students.map((st, sIdx) => {
                     const stMarks = marks[st.id]?.[sub] || {};
                     return (
-                      <tr key={st.id} className="border-b uppercase text-center">
-                        <td className="p-2 font-black text-gray-900 text-left border-r">{st.name}</td>
-                        <td className="p-1 border-r">
-                          <input ref={el => { inputsRef.current[`${sIdx}_t1_${sub}`] = el; }} type="text" value={stMarks[`${selectedTerm}_t1`] ?? ""} onKeyDown={(e) => handleKeyDown(e, sIdx, "t1", sub)} onChange={(e) => handleInputChange(st.id, sIdx, sub, "t1", e.target.value)} className="border rounded p-1 w-16 text-center font-bold bg-gray-50 outline-none" />
+                      <tr key={st.id} className="border-b border-gray-300 uppercase text-center font-black text-gray-900 text-xs">
+                        <td className="p-3 font-black text-gray-900 text-left border-r border-gray-300">{st.name}</td>
+                        <td className="p-2 border-r border-gray-300">
+                          <input ref={el => { inputsRef.current[`${sIdx}_t1_${sub}`] = el; }} type="text" value={stMarks[`${selectedTerm}_t1`] ?? ""} onKeyDown={(e) => handleKeyDown(e, sIdx, "t1", sub)} onChange={(e) => handleInputChange(st.id, sIdx, sub, "t1", e.target.value)} className="border-2 border-gray-400 rounded-xl p-2 w-20 text-center font-black text-gray-900 bg-white outline-none focus:border-blue-900" />
                         </td>
-                        <td className="p-1 border-r">
-                          <input ref={el => { inputsRef.current[`${sIdx}_m1_${sub}`] = el; }} type="text" value={stMarks[`${selectedTerm}_m1`] ?? ""} onKeyDown={(e) => handleKeyDown(e, sIdx, "m1", sub)} onChange={(e) => handleInputChange(st.id, sIdx, sub, "m1", e.target.value)} className="border rounded p-1 w-16 text-center font-bold bg-gray-50 outline-none" />
+                        <td className="p-2 border-r border-gray-300">
+                          <input ref={el => { inputsRef.current[`${sIdx}_m1_${sub}`] = el; }} type="text" value={stMarks[`${selectedTerm}_m1`] ?? ""} onKeyDown={(e) => handleKeyDown(e, sIdx, "m1", sub)} onChange={(e) => handleInputChange(st.id, sIdx, sub, "m1", e.target.value)} className="border-2 border-gray-400 rounded-xl p-2 w-20 text-center font-black text-gray-900 bg-white outline-none focus:border-blue-900" />
                         </td>
-                        <td className="p-1 border-r">
-                          <input ref={el => { inputsRef.current[`${sIdx}_t2_${sub}`] = el; }} type="text" value={stMarks[`${selectedTerm}_t2`] ?? ""} onKeyDown={(e) => handleKeyDown(e, sIdx, "t2", sub)} onChange={(e) => handleInputChange(st.id, sIdx, sub, "t2", e.target.value)} className="border rounded p-1 w-16 text-center font-bold bg-gray-50 outline-none" />
+                        <td className="p-2 border-r border-gray-300">
+                          <input ref={el => { inputsRef.current[`${sIdx}_t2_${sub}`] = el; }} type="text" value={stMarks[`${selectedTerm}_t2`] ?? ""} onKeyDown={(e) => handleKeyDown(e, sIdx, "t2", sub)} onChange={(e) => handleInputChange(st.id, sIdx, sub, "t2", e.target.value)} className="border-2 border-gray-400 rounded-xl p-2 w-20 text-center font-black text-gray-900 bg-white outline-none focus:border-blue-900" />
                         </td>
-                        <td className="p-1">
-                          <input ref={el => { inputsRef.current[`${sIdx}_m2_${sub}`] = el; }} type="text" value={stMarks[`${selectedTerm}_m2`] ?? ""} onKeyDown={(e) => handleKeyDown(e, sIdx, "m2", sub)} onChange={(e) => handleInputChange(st.id, sIdx, sub, "m2", e.target.value)} className="border rounded p-1 w-16 text-center font-bold bg-gray-50 outline-none" />
+                        <td className="p-2">
+                          <input ref={el => { inputsRef.current[`${sIdx}_m2_${sub}`] = el; }} type="text" value={stMarks[`${selectedTerm}_m2`] ?? ""} onKeyDown={(e) => handleKeyDown(e, sIdx, "m2", sub)} onChange={(e) => handleInputChange(st.id, sIdx, sub, "m2", e.target.value)} className="border-2 border-gray-400 rounded-xl p-2 w-20 text-center font-black text-gray-900 bg-white outline-none focus:border-blue-900" />
                         </td>
                       </tr>
                     );

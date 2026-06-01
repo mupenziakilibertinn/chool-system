@@ -1,63 +1,87 @@
 "use client";
-import { useState } from "react";
-import { auth, db } from "../lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 
-export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-      const user = userCredential.user;
-
-      // Scan firebase rules to locate authorization clearance level
-      const q = query(collection(db, "teachers"), where("email", "==", user.email?.toLowerCase()));
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const teacherDoc = querySnapshot.docs[0].data();
-        if (teacherDoc.isAdmin) {
-          router.push("/admin"); // Take you directly to Master Controls
-        } else {
-          router.push("/marks"); // Take standard instructors to Mark Sheets
-        }
-      } else {
-        alert("Access Denied: Your email is not registered by the administrator.");
-      }
-    } catch (err: any) {
-      alert("Authentication Error: " + err.message);
-    }
-    setLoading(false);
-  };
-
+export default function RootLandingPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-blue-950 font-sans px-4">
-      <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-sm w-full border-4 border-double border-blue-900">
-        <h1 className="text-center text-2xl font-black text-blue-900 uppercase tracking-wide">NEW GENERATION SCHOOL</h1>
-        <p className="text-center text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-1 mb-6">Terminal Database Management Access</p>
-        
-        <form onSubmit={handleLogin} className="space-y-4 text-xs font-bold">
-          <div>
-            <label className="block text-gray-500 uppercase mb-1">Email Address</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full border-2 rounded-xl p-3 outline-none focus:border-blue-900" placeholder="teacher@ngs.com" />
-          </div>
-          <div>
-            <label className="block text-gray-500 uppercase mb-1">Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border-2 rounded-xl p-3 outline-none focus:border-blue-900" placeholder="••••••••" />
-          </div>
-          <button type="submit" disabled={loading} className="w-full bg-blue-900 hover:bg-black text-white py-3 rounded-xl font-black uppercase tracking-wider transition-all mt-2">
-            {loading ? "VERIFYING ACCOUNT PROFILE..." : "Secure System Login"}
-          </button>
-        </form>
+    <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-6 font-sans text-slate-800">
+      
+      {/* SCHOOL BRANDING HEADER */}
+      <div className="text-center mb-12 max-w-md">
+        <div className="w-16 h-16 bg-blue-600 rounded-3xl mx-auto flex items-center justify-center text-2xl shadow-md mb-4 text-white font-black">
+          NG
+        </div>
+        <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase">
+          New Generation School
+        </h1>
+        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 leading-relaxed">
+          Integrated Education Management System &middot; Portal Entry
+        </p>
       </div>
+
+      {/* TWO-WAY ACCESS CHANNELS */}
+      <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8">
+        
+        {/* TEACHER ACCESS ENTRY */}
+        <Link href="/login" className="group">
+          <div className="bg-white border-2 border-slate-200 p-8 rounded-3xl shadow-sm hover:border-blue-500 hover:shadow-xl transition-all duration-300 flex flex-col justify-between min-h-[260px] cursor-pointer">
+            <div>
+              <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-2xl group-hover:bg-blue-600 group-hover:text-white transition-all duration-300 shadow-sm">
+                🧑‍🏫
+              </div>
+              <h2 className="text-xl font-black text-slate-900 uppercase tracking-wide mt-6">
+                Teacher Terminal
+              </h2>
+              <p className="text-xs text-slate-400 font-medium uppercase tracking-normal mt-2 leading-relaxed">
+                Secure gateway for instructional staff to log in, manage student records, and input evaluation marks.
+              </p>
+            </div>
+            
+            <div className="border-t border-slate-100 pt-4 mt-6 flex items-center justify-between">
+              <span className="text-blue-600 font-black text-[10px] uppercase tracking-wider">
+                Access Marks Console &rarr;
+              </span>
+              <span className="bg-slate-100 group-hover:bg-blue-50 group-hover:text-blue-600 text-slate-500 text-[9px] font-black uppercase px-2.5 py-1 rounded-md tracking-wider transition-colors">
+                Staff Only
+              </span>
+            </div>
+          </div>
+        </Link>
+
+        {/* ADMINISTRATIVE ACCESS ENTRY */}
+        <Link href="/admin" className="group">
+          <div className="bg-white border-2 border-slate-200 p-8 rounded-3xl shadow-sm hover:border-emerald-500 hover:shadow-xl transition-all duration-300 flex flex-col justify-between min-h-[260px] cursor-pointer">
+            <div>
+              <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center text-2xl group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300 shadow-sm">
+                💼
+              </div>
+              <h2 className="text-xl font-black text-slate-900 uppercase tracking-wide mt-6">
+                Administrative Terminal
+              </h2>
+              <p className="text-xs text-slate-400 font-medium uppercase tracking-normal mt-2 leading-relaxed">
+                Executive workspace to pass directly into institutional tracking data, system analytics, and master files.
+              </p>
+            </div>
+            
+            <div className="border-t border-slate-100 pt-4 mt-6 flex items-center justify-between">
+              <span className="text-emerald-600 font-black text-[10px] uppercase tracking-wider">
+                Pass to Admin Control &rarr;
+              </span>
+              <span className="bg-slate-100 group-hover:bg-emerald-50 group-hover:text-emerald-600 text-slate-500 text-[9px] font-black uppercase px-2.5 py-1 rounded-md tracking-wider transition-colors">
+                Authorized Only
+              </span>
+            </div>
+          </div>
+        </Link>
+
+      </div>
+
+      {/* SYSTEM META FOOTER */}
+      <div className="mt-16 text-center">
+        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+          Secured System Connection &middot; Active Version 1.0.0
+        </p>
+      </div>
+
     </div>
   );
 }

@@ -9,7 +9,7 @@ type ReportMode = "mid1" | "mid2" | "summation";
 
 function ReportCardsEngine() {
   const searchParams = useSearchParams();
-  
+
   const urlClass = searchParams.get("class");
   const urlStudentId = searchParams.get("studentId");
   const activeClass = urlClass ? urlClass.toUpperCase() : "P6";
@@ -32,11 +32,9 @@ function ReportCardsEngine() {
       try {
         const tSnap = await getDocs(collection(db, "teachers"));
         let detectedTeacher = "";
-
         tSnap.forEach((docSnap) => {
           const data = docSnap.data();
           const docClassTeacherOf = data.classTeacherOf ? data.classTeacherOf.toUpperCase() : "";
-
           if (docClassTeacherOf === activeClass) {
             detectedTeacher = data.name || "";
           }
@@ -47,12 +45,13 @@ function ReportCardsEngine() {
             }
           }
         });
-
         setClassTeacherName(detectedTeacher.toUpperCase());
+
         const sSnap = await getDocs(collection(db, "students"));
         const classFiltered = sSnap.docs
           .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
           .filter((s) => s.class?.toUpperCase() === activeClass);
+
         let marksMatrix: any = {};
         await Promise.all(classFiltered.map(async (student) => {
           const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
@@ -62,26 +61,32 @@ function ReportCardsEngine() {
           });
         }));
         setAllMarks(marksMatrix);
+
         const studentsWithScores = classFiltered.map((student) => {
           const studentMarks = marksMatrix[student.id] || {};
           let totalMaxPossible = 0;
           let totalAcquiredMarks = 0;
+
           subjectsList.forEach((sub) => {
             if (activeClass === "P6" && sub === "French") return;
             const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
             const baseMax = isFrenchP1P5 ? 25 : 50;
+
             const mData = studentMarks[sub] || {};
             const t1 = mData[`${selectedTerm}_t1`] ?? "-";
             const m1 = mData[`${selectedTerm}_m1`] ?? "-";
             const t2 = mData[`${selectedTerm}_t2`] ?? "-";
             const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
             if (t1 === "-" && m1 === "-" && t2 === "-" && m2 === "-") {
               return;
             }
+
             const v1 = t1 !== "-" ? Number(t1) : 0;
             const v2 = m1 !== "-" ? Number(m1) : 0;
             const v3 = t2 !== "-" ? Number(t2) : 0;
             const v4 = m2 !== "-" ? Number(m2) : 0;
+
             if (reportMode === "mid1") {
               totalAcquiredMarks += (v1 + v2);
               totalMaxPossible += (baseMax * 2);
@@ -93,6 +98,7 @@ function ReportCardsEngine() {
               totalMaxPossible += (baseMax * 2);
             }
           });
+
           const percentage = totalMaxPossible > 0 ? (totalAcquiredMarks / totalMaxPossible) * 100 : 0;
           return {
             ...student,
@@ -101,6 +107,7 @@ function ReportCardsEngine() {
             percentage
           };
         });
+
         studentsWithScores.sort((a, b) => b.percentage - a.percentage);
         let currentRank = 1;
         const rankedStudents = studentsWithScores.map((student, index, arr) => {
@@ -109,6 +116,7 @@ function ReportCardsEngine() {
           }
           return { ...student, position: currentRank };
         });
+
         rankedStudents.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         setStudents(rankedStudents);
       } catch (err) {
@@ -116,6 +124,7 @@ function ReportCardsEngine() {
       }
       setLoading(false);
     };
+
     fetchClassReports();
   }, [activeClass, selectedTerm, reportMode]);
 
@@ -138,11 +147,13 @@ function ReportCardsEngine() {
       if (activeClass === "P6" && sub === "French") return;
       const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
       const baseMax = isFrenchP1P5 ? 25 : 50;
+
       const mData = studentMarks[sub] || {};
       const t1 = mData[`${selectedTerm}_t1`] ?? "-";
       const m1 = mData[`${selectedTerm}_m1`] ?? "-";
       const t2 = mData[`${selectedTerm}_t2`] ?? "-";
       const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
       const v1 = t1 !== "-" ? Number(t1) : 0;
       const v2 = m1 !== "-" ? Number(m1) : 0;
       const v3 = t2 !== "-" ? Number(t2) : 0;
@@ -160,33 +171,31 @@ function ReportCardsEngine() {
         subTotal = v1 + v2 + v3 + v4;
         subMax = baseMax * 2;
       }
-      const subPercentage = subMax > 0 ? (subTotal / subMax) * 100 : 100;
 
+      const subPercentage = subMax > 0 ? (subTotal / subMax) * 100 : 100;
       if (subPercentage < 65 && (t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-")) {
         weakSubjects.push(sub.toUpperCase());
       }
     });
+
     if (percentage >= 85) {
       if (weakSubjects.length > 0) {
         return `An outstanding performance overall! However, more active revision is recommended in ${weakSubjects.join(", ")} to clear minor gaps and keep up this elite standard.`;
       }
       return "An exceptional academic performance this term! Highly disciplined, consistent, and exemplary work across all course pathways. Keep up this brilliant standard.";
     }
-
     if (percentage >= 70) {
       if (weakSubjects.length > 0) {
         return `Very good progress made this term. The learner is capable, but needs closer focus and dynamic improvement in ${weakSubjects.join(", ")} where averages fell below 65%.`;
       }
       return "A very strong and commendable performance. Shows steady focus and capability in all subjects. Keep pushing for even higher grades next term.";
     }
-
     if (percentage >= 50) {
       if (weakSubjects.length > 0) {
         return `Passed successfully, but overall consistency is fair. Focused remedial practice is highly necessary in ${weakSubjects.join(", ")} to push scores above the 65% target baseline.`;
       }
       return "Fair performance this term. The learner has passed, but needs to increase general effort and concentration across all pathways to secure better marks.";
     }
-
     if (weakSubjects.length > 0) {
       return `Performance falls short of expectations. Urgent academic intervention and dedicated study revision are required, especially in ${weakSubjects.join(", ")} to cross the passing thresholds.`;
     }
@@ -208,14 +217,14 @@ function ReportCardsEngine() {
   };
 
   if (loading) return <div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">Generating Clean Report Matrices...</div>;
+
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-xs pb-20">
-
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
           @page {
             size: A4 portrait;
-            margin: 6mm 8mm 6mm 8mm;
+            margin: 12mm 8mm 6mm 8mm; /* Increased top margin from 6mm to 12mm to push the top border down */
           }
           body {
             background: white !important;
@@ -228,8 +237,8 @@ function ReportCardsEngine() {
             margin: 0 auto !important;
             box-shadow: none !important;
             width: 100% !important;
-            max-height: 284mm !important;
-            height: 284mm !important;
+            max-height: 278mm !important; /* Adjusted slightly to account for the larger top margin layout */
+            height: 278mm !important;
             page-break-after: always !important;
             page-break-inside: avoid !important;
             display: flex !important;
@@ -292,7 +301,7 @@ function ReportCardsEngine() {
             onClick={handlePrintAll}
             className="bg-green-700 hover:bg-green-800 text-white font-black text-xs uppercase px-5 py-3 rounded-xl shadow transition-all flex items-center gap-2"
           >
-            Print Entire Class Register (Single Click)  🖨️✨
+            Print Entire Class Register (Single Click)   🖨️✨
           </button>
         </div>
       </div>
@@ -305,6 +314,7 @@ function ReportCardsEngine() {
             const studentMarks = allMarks[student.id] || {};
             const isVisible = isPrintAllMode || activeStudentId === student.id || activeStudentId === null;
             if (!isVisible) return null;
+
             return (
               <div
                 key={student.id}
@@ -312,26 +322,27 @@ function ReportCardsEngine() {
                   activeStudentId === student.id ? "ring-4 ring-blue-900" : ""
                 }`}
               >
-
                 <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none select-none z-0">
                   <h1 className="text-8xl font-black tracking-widest text-center rotate-[320deg]">NEW GENERATION SCHOOL</h1>
                 </div>
+
                 <div className="print:hidden flex justify-end gap-2 mb-4 bg-gray-50 p-2 rounded-lg border">
                   <button
                     onClick={() => handlePrintSingle(student.id)}
                     className="bg-blue-900 text-white font-black px-3 py-1.5 rounded-md uppercase text-[10px]"
                   >
-                    Print Only This Card  🖨️
+                    Print Only This Card   🖨️
                   </button>
                   {activeStudentId !== null && (
                     <button
                       onClick={() => setActiveStudentId(null)}
                       className="bg-gray-600 text-white font-black px-3 py-1.5 rounded-md uppercase text-[10px]"
                     >
-                      Show All Cards  ✕
+                      Show All Cards   ✕
                     </button>
                   )}
                 </div>
+
                 <div className="flex flex-col justify-start space-y-4 flex-grow">
                   <div className="border-b-4 border-black pb-4 print-header">
                     <div className="flex items-center justify-start gap-6 w-full print-header-layout">
@@ -345,13 +356,13 @@ function ReportCardsEngine() {
                         <p className="text-xs font-black uppercase tracking-widest text-blue-900 mt-2">{getReportTitle()}</p>
                       </div>
                     </div>
-
                     <div className="grid grid-cols-3 gap-4 text-left mt-4 text-[11px] font-black bg-gray-50 p-3 rounded-xl border-2 border-gray-200 print-meta w-full">
                       <div className="uppercase">STUDENT: <span className="text-blue-950 text-sm font-black block mt-0.5">{student.name}</span></div>
                       <div className="uppercase">CLASS LEVEL: <span className="text-blue-950 text-sm font-black block mt-0.5">{student.class} Stream</span></div>
                       <div className="uppercase">ACADEMIC PERIOD: <span className="text-blue-950 text-sm font-black font-serif uppercase block mt-0.5">{selectedTerm}</span></div>
                     </div>
                   </div>
+
                   <table className="w-full text-center border-collapse border-4 border-black text-sm font-black print-table">
                     <thead className="bg-gray-100 border-b-4 border-black uppercase text-[10px] tracking-wider">
                       <tr>
@@ -389,6 +400,7 @@ function ReportCardsEngine() {
                         const m1 = mData[`${selectedTerm}_m1`] ?? "-";
                         const t2 = mData[`${selectedTerm}_t2`] ?? "-";
                         const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
                         const v1 = t1 !== "-" ? Number(t1) : 0;
                         const v2 = m1 !== "-" ? Number(m1) : 0;
                         const v3 = t2 !== "-" ? Number(t2) : 0;
@@ -406,7 +418,9 @@ function ReportCardsEngine() {
                           subTotal = v1 + v2 + v3 + v4;
                           subMax = baseMax * 2;
                         }
+
                         const hasMarks = t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-";
+
                         return (
                           <tr key={sub} className="border-b-2 border-black text-gray-900 text-[13px] font-black">
                             <td className="p-2.5 py-3 border-r-4 border-black text-left font-black uppercase text-blue-950">{sub}</td>
@@ -427,7 +441,7 @@ function ReportCardsEngine() {
                                 <td className="p-2.5 border-r-2 border-black text-gray-950">{t1}</td>
                                 <td className="p-2.5 border-r-2 border-black text-gray-950">{m1}</td>
                                 <td className="p-2.5 border-r-2 border-black text-gray-950">{t2}</td>
-                                <td className="p-2.5 border-r-4 border-black text-gray-950">{m2}</td>
+                                <td className="p-2.5 border-r-2 border-black text-gray-950">{m2}</td>
                               </>
                             )}
                             <td className="p-2.5 font-black text-blue-900">
@@ -436,7 +450,6 @@ function ReportCardsEngine() {
                           </tr>
                         );
                       })}
-
                       <tr className="bg-blue-50/80 font-black text-blue-950 border-t-4 border-black text-xs tr-total">
                         <td colSpan={reportMode === "summation" ? 2 : 1} className="p-3 border-r-4 border-black text-center uppercase tracking-wider text-[11px]">
                           TOTAL SCORE: <span className="text-blue-900 text-sm block mt-0.5 font-serif">{student.totalAcquiredMarks} / {student.totalMaxPossible}</span>
@@ -450,6 +463,7 @@ function ReportCardsEngine() {
                       </tr>
                     </tbody>
                   </table>
+
                   <div className="space-y-1 text-left print-comment-area flex-grow">
                     <span className="text-blue-950 font-black uppercase text-[11px] tracking-wider">Class Teacher's Comments & General Observations:</span>
                     <div className="border-4 border-black rounded-xl p-4 bg-gray-50 font-black text-gray-900 text-[12px] italic tracking-wide leading-relaxed flex items-center print-comment-box min-h-[90px]">
@@ -457,14 +471,15 @@ function ReportCardsEngine() {
                     </div>
                   </div>
                 </div>
+
                 <div className="grid grid-cols-2 gap-8 pt-4 border-t-4 border-dashed border-gray-400 font-black items-end print-signatures mt-auto">
                   <div className="space-y-0.5">
                     <span className="text-gray-400 uppercase tracking-widest block text-[9px]">Class Teacher:</span>
+                    {/* Kept original layout without text underlining */}
                     <div className="h-9 flex items-end pb-0.5 text-sm uppercase text-blue-900 tracking-wider font-black print-teacher-line">
                       {classTeacherName || "_______________________"}
                     </div>
                   </div>
-
                   <div className="flex flex-col items-end space-y-0.5">
                     <span className="text-gray-400 uppercase tracking-widest block text-[9px] text-right w-40">Official School Authority:</span>
                     <div className="border-4 border-dashed border-gray-400 rounded-xl w-36 h-16 flex items-center justify-center bg-gray-50/50 text-[9px] uppercase tracking-wider text-gray-400 font-black print-stamp">
@@ -483,9 +498,8 @@ function ReportCardsEngine() {
 
 export default function ReportCardsPage() {
   return (
-    <Suspense fallback={<div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">Loading Report Hub Layout Matrix...</div>}>
+    <Suspense fallback={<div className="text-center font-black p-10 text-xs text-blue-900 uppercase tracking-widest">Warming Layout Clusters...</div>}>
       <ReportCardsEngine />
     </Suspense>
   );
 }
-

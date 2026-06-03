@@ -32,11 +32,9 @@ function ReportCardsEngine() {
       try {
         const tSnap = await getDocs(collection(db, "teachers"));
         let detectedTeacher = "";
-
         tSnap.forEach((docSnap) => {
           const data = docSnap.data();
           const docClassTeacherOf = data.classTeacherOf ? data.classTeacherOf.toUpperCase() : "";
-
           if (docClassTeacherOf === activeClass) {
             detectedTeacher = data.name || "";
           }
@@ -47,12 +45,13 @@ function ReportCardsEngine() {
             }
           }
         });
-
         setClassTeacherName(detectedTeacher.toUpperCase());
+
         const sSnap = await getDocs(collection(db, "students"));
         const classFiltered = sSnap.docs
           .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
           .filter((s) => s.class?.toUpperCase() === activeClass);
+
         let marksMatrix: any = {};
         await Promise.all(classFiltered.map(async (student) => {
           const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
@@ -62,26 +61,32 @@ function ReportCardsEngine() {
           });
         }));
         setAllMarks(marksMatrix);
+
         const studentsWithScores = classFiltered.map((student) => {
           const studentMarks = marksMatrix[student.id] || {};
           let totalMaxPossible = 0;
           let totalAcquiredMarks = 0;
+
           subjectsList.forEach((sub) => {
             if (activeClass === "P6" && sub === "French") return;
             const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
             const baseMax = isFrenchP1P5 ? 25 : 50;
             const mData = studentMarks[sub] || {};
+            
             const t1 = mData[`${selectedTerm}_t1`] ?? "-";
             const m1 = mData[`${selectedTerm}_m1`] ?? "-";
             const t2 = mData[`${selectedTerm}_t2`] ?? "-";
             const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
             if (t1 === "-" && m1 === "-" && t2 === "-" && m2 === "-") {
               return;
             }
+
             const v1 = t1 !== "-" ? Number(t1) : 0;
             const v2 = m1 !== "-" ? Number(m1) : 0;
             const v3 = t2 !== "-" ? Number(t2) : 0;
             const v4 = m2 !== "-" ? Number(m2) : 0;
+
             if (reportMode === "mid1") {
               totalAcquiredMarks += (v1 + v2);
               totalMaxPossible += (baseMax * 2);
@@ -93,6 +98,7 @@ function ReportCardsEngine() {
               totalMaxPossible += (baseMax * 2);
             }
           });
+
           const percentage = totalMaxPossible > 0 ? (totalAcquiredMarks / totalMaxPossible) * 100 : 0;
           return {
             ...student,
@@ -101,6 +107,7 @@ function ReportCardsEngine() {
             percentage
           };
         });
+
         studentsWithScores.sort((a, b) => b.percentage - a.percentage);
         let currentRank = 1;
         const rankedStudents = studentsWithScores.map((student, index, arr) => {
@@ -109,6 +116,7 @@ function ReportCardsEngine() {
           }
           return { ...student, position: currentRank };
         });
+
         rankedStudents.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         setStudents(rankedStudents);
       } catch (err) {
@@ -116,6 +124,7 @@ function ReportCardsEngine() {
       }
       setLoading(false);
     };
+
     fetchClassReports();
   }, [activeClass, selectedTerm, reportMode]);
 
@@ -134,15 +143,18 @@ function ReportCardsEngine() {
   const getAutomaticComment = (percentage: number, max: number, studentMarks: any) => {
     if (max === 0) return "No marks recorded for this academic period.";
     let weakSubjects: string[] = [];
+
     subjectsList.forEach((sub) => {
       if (activeClass === "P6" && sub === "French") return;
       const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
       const baseMax = isFrenchP1P5 ? 25 : 50;
       const mData = studentMarks[sub] || {};
+      
       const t1 = mData[`${selectedTerm}_t1`] ?? "-";
       const m1 = mData[`${selectedTerm}_m1`] ?? "-";
       const t2 = mData[`${selectedTerm}_t2`] ?? "-";
       const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
       const v1 = t1 !== "-" ? Number(t1) : 0;
       const v2 = m1 !== "-" ? Number(m1) : 0;
       const v3 = t2 !== "-" ? Number(t2) : 0;
@@ -150,6 +162,7 @@ function ReportCardsEngine() {
 
       let subTotal = 0;
       let subMax = 0;
+
       if (reportMode === "mid1") {
         subTotal = v1 + v2;
         subMax = baseMax * 2;
@@ -160,33 +173,31 @@ function ReportCardsEngine() {
         subTotal = v1 + v2 + v3 + v4;
         subMax = baseMax * 2;
       }
-      const subPercentage = subMax > 0 ? (subTotal / subMax) * 100 : 100;
 
+      const subPercentage = subMax > 0 ? (subTotal / subMax) * 100 : 100;
       if (subPercentage < 65 && (t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-")) {
         weakSubjects.push(sub.toUpperCase());
       }
     });
+
     if (percentage >= 85) {
       if (weakSubjects.length > 0) {
         return `An outstanding performance overall! However, more active revision is recommended in ${weakSubjects.join(", ")} to clear minor gaps and keep up this elite standard.`;
       }
       return "An exceptional academic performance this term! Highly disciplined, consistent, and exemplary work across all course pathways. Keep up this brilliant standard.";
     }
-
     if (percentage >= 70) {
       if (weakSubjects.length > 0) {
         return `Very good progress made this term. The learner is capable, but needs closer focus and dynamic improvement in ${weakSubjects.join(", ")} where averages fell below 65%.`;
       }
       return "A very strong and commendable performance. Shows steady focus and capability in all subjects. Keep pushing for even higher grades next term.";
     }
-
     if (percentage >= 50) {
       if (weakSubjects.length > 0) {
         return `Passed successfully, but overall consistency is fair. Focused remedial practice is highly necessary in ${weakSubjects.join(", ")} to push scores above the 65% target baseline.`;
       }
       return "Fair performance this term. The learner has passed, but needs to increase general effort and concentration across all pathways to secure better marks.";
     }
-
     if (weakSubjects.length > 0) {
       return `Performance falls short of expectations. Urgent academic intervention and dedicated study revision are required, especially in ${weakSubjects.join(", ")} to cross the passing thresholds.`;
     }
@@ -208,14 +219,14 @@ function ReportCardsEngine() {
   };
 
   if (loading) return <div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">Generating Clean Report Matrices...</div>;
+
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-xs pb-20">
-
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
           @page {
             size: A4 portrait;
-            margin: 6mm 8mm 6mm 8mm;
+            margin: 12mm 10mm 12mm 10mm;
           }
           body {
             background: white !important;
@@ -224,37 +235,52 @@ function ReportCardsEngine() {
           }
           .print-card {
             border: 5px solid black !important;
-            padding: 24px 24px 20px 24px !important;
+            padding: 20px 20px 16px 20px !important;
             margin: 0 auto !important;
             box-shadow: none !important;
             width: 100% !important;
-            max-height: 284mm !important;
-            height: 284mm !important;
+            max-height: 268mm !important;
+            height: 268mm !important;
             page-break-after: always !important;
             page-break-inside: avoid !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: space-between !important;
             box-sizing: border-box !important;
+            position: relative !important;
+          }
+          .print-watermark {
+            display: block !important;
+            color: #e2e8f0 !important;
+            -webkit-text-fill-color: #f1f5f9 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            font-size: 70px !important;
+            font-weight: 900 !important;
+            letter-spacing: 0.1em !important;
+            text-align: center !important;
+            transform: rotate(-35deg) !important;
+            opacity: 1 !important;
+            z-index: 0 !important;
           }
           .print-header-layout { display: flex !important; align-items: center !important; justify-content: flex-start !important; width: 100% !important; }
-          .print-text-area { text-align: left !important; margin-left: 24px !important; flex-grow: 1 !important; }
-          .print-header h2 { font-size: 28px !important; margin: 0 !important; }
-          .print-header p { font-size: 12px !important; margin-top: 6px !important; }
-          .print-meta { padding: 10px 14px !important; margin-top: 12px !important; font-size: 12px !important; }
-          .print-meta span { font-size: 14px !important; }
-          .print-table { margin-top: 14px !important; font-size: 13px !important; flex-grow: 0.2 !important; }
-          .print-table th { padding: 10px 6px !important; font-size: 11px !important; }
-          .print-table td { padding: 12px 6px !important; font-size: 13px !important; }
-          .print-table .tr-total td { padding: 14px 6px !important; font-size: 13px !important; }
-          .print-comment-area { margin-top: 16px !important; flex-grow: 1 !important; display: flex !important; flex-direction: column !important; justify-content: flex-start !important; }
-          .print-comment-area span { font-size: 12px !important; }
-          .print-comment-box { padding: 14px 16px !important; flex-grow: 1 !important; min-height: 90px !important; font-size: 12px !important; margin-top: 6px !important; }
-          .print-signatures { margin-top: auto !important; padding-top: 16px !important; }
-          .print-signatures span { font-size: 11px !important; }
-          .print-stamp { height: 75px !important; width: 145px !important; font-size: 11px !important; }
-          .print-teacher-line { font-size: 13px !important; width: 240px !important; height: 36px !important; border: none !important; }
-          .print-logo { height: 100px !important; width: 100px !important; display: block !important; }
+          .print-text-area { text-align: left !important; margin-left: 20px !important; flex-grow: 1 !important; }
+          .print-header h2 { font-size: 26px !important; margin: 0 !important; }
+          .print-header p { font-size: 11px !important; margin-top: 4px !important; }
+          .print-meta { padding: 8px 12px !important; margin-top: 10px !important; font-size: 11px !important; }
+          .print-meta span { font-size: 13px !important; }
+          .print-table { margin-top: 10px !important; font-size: 12px !important; flex-grow: 0.1 !important; position: relative !important; z-index: 10 !important; background: transparent !important; }
+          .print-table th { padding: 8px 5px !important; font-size: 10px !important; }
+          .print-table td { padding: 8px 5px !important; font-size: 12px !important; background: transparent !important; }
+          .print-table .tr-total td { padding: 10px 5px !important; font-size: 12px !important; }
+          .print-comment-area { margin-top: 12px !important; flex-grow: 1 !important; display: flex !important; flex-direction: column !important; justify-content: flex-start !important; position: relative !important; z-index: 10 !important; }
+          .print-comment-area span { font-size: 11px !important; }
+          .print-comment-box { padding: 10px 12px !important; flex-grow: 1 !important; min-height: 75px !important; font-size: 11px !important; margin-top: 4px !important; background: transparent !important; }
+          .print-signatures { margin-top: auto !important; padding-top: 12px !important; position: relative !important; z-index: 10 !important; }
+          .print-signatures span { font-size: 10px !important; }
+          .print-stamp { height: 70px !important; width: 135px !important; font-size: 10px !important; }
+          .print-teacher-line { font-size: 12px !important; width: 230px !important; height: 32px !important; border: none !important; }
+          .print-logo { height: 85px !important; width: 85px !important; display: block !important; }
         }
       `}} />
 
@@ -305,6 +331,7 @@ function ReportCardsEngine() {
             const studentMarks = allMarks[student.id] || {};
             const isVisible = isPrintAllMode || activeStudentId === student.id || activeStudentId === null;
             if (!isVisible) return null;
+
             return (
               <div
                 key={student.id}
@@ -312,16 +339,19 @@ function ReportCardsEngine() {
                   activeStudentId === student.id ? "ring-4 ring-blue-900" : ""
                 }`}
               >
-
-                <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none select-none z-0">
-                  <h1 className="text-8xl font-black tracking-widest text-center rotate-[320deg]">NEW GENERATION SCHOOL</h1>
+                {/* Fixed Watermark Component */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-10 print:opacity-100 pointer-events-none select-none z-0">
+                  <h1 className="text-6xl font-black tracking-widest text-center rotate-[325deg] text-gray-200 uppercase print-watermark">
+                    NEW GENERATION SCHOOL
+                  </h1>
                 </div>
+
                 <div className="print:hidden flex justify-end gap-2 mb-4 bg-gray-50 p-2 rounded-lg border">
                   <button
                     onClick={() => handlePrintSingle(student.id)}
                     className="bg-blue-900 text-white font-black px-3 py-1.5 rounded-md uppercase text-[10px]"
                   >
-                    Print Only This Card  🖨️
+                    Print Only This Card  🖨
                   </button>
                   {activeStudentId !== null && (
                     <button
@@ -332,8 +362,9 @@ function ReportCardsEngine() {
                     </button>
                   )}
                 </div>
-                <div className="flex flex-col justify-start space-y-4 flex-grow">
-                  <div className="border-b-4 border-black pb-4 print-header">
+
+                <div className="flex flex-col justify-start space-y-4 flex-grow relative z-10">
+                  <div className="border-b-4 border-black pb-4 print-header bg-white">
                     <div className="flex items-center justify-start gap-6 w-full print-header-layout">
                       <img
                         src="/logo.png"
@@ -352,6 +383,7 @@ function ReportCardsEngine() {
                       <div className="uppercase">ACADEMIC PERIOD: <span className="text-blue-950 text-sm font-black font-serif uppercase block mt-0.5">{selectedTerm}</span></div>
                     </div>
                   </div>
+
                   <table className="w-full text-center border-collapse border-4 border-black text-sm font-black print-table">
                     <thead className="bg-gray-100 border-b-4 border-black uppercase text-[10px] tracking-wider">
                       <tr>
@@ -385,10 +417,12 @@ function ReportCardsEngine() {
                         const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
                         const baseMax = isFrenchP1P5 ? 25 : 50;
                         const mData = studentMarks[sub] || {};
+                        
                         const t1 = mData[`${selectedTerm}_t1`] ?? "-";
                         const m1 = mData[`${selectedTerm}_m1`] ?? "-";
                         const t2 = mData[`${selectedTerm}_t2`] ?? "-";
                         const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
                         const v1 = t1 !== "-" ? Number(t1) : 0;
                         const v2 = m1 !== "-" ? Number(m1) : 0;
                         const v3 = t2 !== "-" ? Number(t2) : 0;
@@ -396,6 +430,7 @@ function ReportCardsEngine() {
 
                         let subTotal = 0;
                         let subMax = 0;
+
                         if (reportMode === "mid1") {
                           subTotal = v1 + v2;
                           subMax = baseMax * 2;
@@ -406,7 +441,9 @@ function ReportCardsEngine() {
                           subTotal = v1 + v2 + v3 + v4;
                           subMax = baseMax * 2;
                         }
+
                         const hasMarks = t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-";
+
                         return (
                           <tr key={sub} className="border-b-2 border-black text-gray-900 text-[13px] font-black">
                             <td className="p-2.5 py-3 border-r-4 border-black text-left font-black uppercase text-blue-950">{sub}</td>
@@ -436,7 +473,6 @@ function ReportCardsEngine() {
                           </tr>
                         );
                       })}
-
                       <tr className="bg-blue-50/80 font-black text-blue-950 border-t-4 border-black text-xs tr-total">
                         <td colSpan={reportMode === "summation" ? 2 : 1} className="p-3 border-r-4 border-black text-center uppercase tracking-wider text-[11px]">
                           TOTAL SCORE: <span className="text-blue-900 text-sm block mt-0.5 font-serif">{student.totalAcquiredMarks} / {student.totalMaxPossible}</span>
@@ -450,21 +486,22 @@ function ReportCardsEngine() {
                       </tr>
                     </tbody>
                   </table>
+
                   <div className="space-y-1 text-left print-comment-area flex-grow">
                     <span className="text-blue-950 font-black uppercase text-[11px] tracking-wider">Class Teacher's Comments & General Observations:</span>
-                    <div className="border-4 border-black rounded-xl p-4 bg-gray-50 font-black text-gray-900 text-[12px] italic tracking-wide leading-relaxed flex items-center print-comment-box min-h-[90px]">
+                    <div className="border-4 border-black rounded-xl p-4 font-black text-gray-900 text-[12px] italic tracking-wide leading-relaxed flex items-center print-comment-box min-h-[75px]">
                       "{getAutomaticComment(student.percentage, student.totalMaxPossible, studentMarks)}"
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-8 pt-4 border-t-4 border-dashed border-gray-400 font-black items-end print-signatures mt-auto">
+
+                <div className="grid grid-cols-2 gap-8 pt-4 border-t-4 border-dashed border-gray-400 font-black items-end print-signatures mt-auto bg-white relative z-10">
                   <div className="space-y-0.5">
                     <span className="text-gray-400 uppercase tracking-widest block text-[9px]">Class Teacher:</span>
                     <div className="h-9 flex items-end pb-0.5 text-sm uppercase text-blue-900 tracking-wider font-black print-teacher-line">
                       {classTeacherName || "_______________________"}
                     </div>
                   </div>
-
                   <div className="flex flex-col items-end space-y-0.5">
                     <span className="text-gray-400 uppercase tracking-widest block text-[9px] text-right w-40">Official School Authority:</span>
                     <div className="border-4 border-dashed border-gray-400 rounded-xl w-36 h-16 flex items-center justify-center bg-gray-50/50 text-[9px] uppercase tracking-wider text-gray-400 font-black print-stamp">

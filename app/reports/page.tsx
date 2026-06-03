@@ -226,7 +226,7 @@ function ReportCardsEngine() {
         @media print {
           @page {
             size: A4 portrait;
-            margin: 12mm 10mm 12mm 10mm;
+            margin: 15mm 12mm 15mm 12mm;
           }
           body {
             background: white !important;
@@ -235,12 +235,12 @@ function ReportCardsEngine() {
           }
           .print-card {
             border: 5px solid black !important;
-            padding: 20px 20px 16px 20px !important;
+            padding: 16px 18px 14px 18px !important;
             margin: 0 auto !important;
             box-shadow: none !important;
             width: 100% !important;
-            max-height: 268mm !important;
-            height: 268mm !important;
+            max-height: 258mm !important;
+            height: 258mm !important;
             page-break-after: always !important;
             page-break-inside: avoid !important;
             display: flex !important;
@@ -255,32 +255,32 @@ function ReportCardsEngine() {
             -webkit-text-fill-color: #f1f5f9 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-            font-size: 70px !important;
+            font-size: 64px !important;
             font-weight: 900 !important;
-            letter-spacing: 0.1em !important;
+            letter-spacing: 0.08em !important;
             text-align: center !important;
-            transform: rotate(-35deg) !important;
+            transform: rotate(-33deg) !important;
             opacity: 1 !important;
             z-index: 0 !important;
           }
           .print-header-layout { display: flex !important; align-items: center !important; justify-content: flex-start !important; width: 100% !important; }
-          .print-text-area { text-align: left !important; margin-left: 20px !important; flex-grow: 1 !important; }
-          .print-header h2 { font-size: 26px !important; margin: 0 !important; }
-          .print-header p { font-size: 11px !important; margin-top: 4px !important; }
-          .print-meta { padding: 8px 12px !important; margin-top: 10px !important; font-size: 11px !important; }
-          .print-meta span { font-size: 13px !important; }
-          .print-table { margin-top: 10px !important; font-size: 12px !important; flex-grow: 0.1 !important; position: relative !important; z-index: 10 !important; background: transparent !important; }
-          .print-table th { padding: 8px 5px !important; font-size: 10px !important; }
-          .print-table td { padding: 8px 5px !important; font-size: 12px !important; background: transparent !important; }
-          .print-table .tr-total td { padding: 10px 5px !important; font-size: 12px !important; }
-          .print-comment-area { margin-top: 12px !important; flex-grow: 1 !important; display: flex !important; flex-direction: column !important; justify-content: flex-start !important; position: relative !important; z-index: 10 !important; }
-          .print-comment-area span { font-size: 11px !important; }
-          .print-comment-box { padding: 10px 12px !important; flex-grow: 1 !important; min-height: 75px !important; font-size: 11px !important; margin-top: 4px !important; background: transparent !important; }
-          .print-signatures { margin-top: auto !important; padding-top: 12px !important; position: relative !important; z-index: 10 !important; }
+          .print-text-area { text-align: left !important; margin-left: 16px !important; flex-grow: 1 !important; }
+          .print-header h2 { font-size: 24px !important; margin: 0 !important; }
+          .print-header p { font-size: 11px !important; margin-top: 3px !important; }
+          .print-meta { padding: 6px 10px !important; margin-top: 8px !important; font-size: 11px !important; }
+          .print-meta span { font-size: 12px !important; }
+          .print-table { margin-top: 8px !important; font-size: 11px !important; flex-grow: 0.05 !important; position: relative !important; z-index: 10 !important; background: transparent !important; }
+          .print-table th { padding: 6px 4px !important; font-size: 10px !important; }
+          .print-table td { padding: 6px 4px !important; font-size: 11px !important; background: transparent !important; }
+          .print-table .tr-total td { padding: 8px 4px !important; font-size: 11px !important; }
+          .print-comment-area { margin-top: 8px !important; flex-grow: 0 !important; display: flex !important; flex-direction: column !important; justify-content: flex-start !important; position: relative !important; z-index: 10 !important; }
+          .print-comment-area span { font-size: 10px !important; }
+          .print-comment-box { padding: 6px 8px !important; flex-grow: 0 !important; min-height: 54px !important; height: auto !important; font-size: 10.5px !important; margin-top: 3px !important; background: transparent !important; }
+          .print-signatures { margin-top: auto !important; padding-top: 10px !important; position: relative !important; z-index: 10 !important; }
           .print-signatures span { font-size: 10px !important; }
-          .print-stamp { height: 70px !important; width: 135px !important; font-size: 10px !important; }
-          .print-teacher-line { font-size: 12px !important; width: 230px !important; height: 32px !important; border: none !important; }
-          .print-logo { height: 85px !important; width: 85px !important; display: block !important; }
+          .print-stamp { height: 65px !important; width: 130px !important; font-size: 10px !important; }
+          .print-teacher-line { font-size: 12px !important; width: 220px !important; height: 30px !important; border: none !important; }
+          .print-logo { height: 75px !important; width: 75px !important; display: block !important; }
         }
       `}} />
 
@@ -363,52 +363,52 @@ function ReportCardsEngine() {
                   )}
                 </div>
 
-                <div className="flex flex-col justify-start space-y-4 flex-grow relative z-10">
-                  <div className="border-b-4 border-black pb-4 print-header bg-white">
-                    <div className="flex items-center justify-start gap-6 w-full print-header-layout">
+                <div className="flex flex-col justify-start space-y-3 flex-grow relative z-10">
+                  <div className="border-b-4 border-black pb-3 print-header bg-white">
+                    <div className="flex items-center justify-start gap-4 w-full print-header-layout">
                       <img
                         src="/logo.png"
                         alt="School Logo"
-                        className="h-24 w-24 object-contain flex-shrink-0 print-logo"
+                        className="h-20 w-20 object-contain flex-shrink-0 print-logo"
                       />
                       <div className="text-left flex-grow print-text-area">
-                        <h2 className="font-black text-3xl tracking-wide text-blue-900 uppercase leading-none m-0">NEW GENERATION SCHOOL</h2>
-                        <p className="text-xs font-black uppercase tracking-widest text-blue-900 mt-2">{getReportTitle()}</p>
+                        <h2 className="font-black text-2xl tracking-wide text-blue-900 uppercase leading-none m-0">NEW GENERATION SCHOOL</h2>
+                        <p className="text-xs font-black uppercase tracking-widest text-blue-900 mt-1.5">{getReportTitle()}</p>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 text-left mt-4 text-[11px] font-black bg-gray-50 p-3 rounded-xl border-2 border-gray-200 print-meta w-full">
-                      <div className="uppercase">STUDENT: <span className="text-blue-950 text-sm font-black block mt-0.5">{student.name}</span></div>
-                      <div className="uppercase">CLASS LEVEL: <span className="text-blue-950 text-sm font-black block mt-0.5">{student.class} Stream</span></div>
-                      <div className="uppercase">ACADEMIC PERIOD: <span className="text-blue-950 text-sm font-black font-serif uppercase block mt-0.5">{selectedTerm}</span></div>
+                    <div className="grid grid-cols-3 gap-4 text-left mt-3 text-[11px] font-black bg-gray-50 p-2 rounded-xl border-2 border-gray-200 print-meta w-full">
+                      <div className="uppercase">STUDENT: <span className="text-blue-950 text-xs font-black block mt-0.5">{student.name}</span></div>
+                      <div className="uppercase">CLASS LEVEL: <span className="text-blue-950 text-xs font-black block mt-0.5">{student.class} Stream</span></div>
+                      <div className="uppercase">ACADEMIC PERIOD: <span className="text-blue-950 text-xs font-black font-serif uppercase block mt-0.5">{selectedTerm}</span></div>
                     </div>
                   </div>
 
-                  <table className="w-full text-center border-collapse border-4 border-black text-sm font-black print-table">
-                    <thead className="bg-gray-100 border-b-4 border-black uppercase text-[10px] tracking-wider">
+                  <table className="w-full text-center border-collapse border-4 border-black text-xs font-black print-table">
+                    <thead className="bg-gray-100 border-b-4 border-black uppercase text-[9px] tracking-wider">
                       <tr>
-                        <th className="p-2.5 border-r-4 border-black text-left w-[45%]">COURSE PATHWAY</th>
+                        <th className="p-2 border-r-4 border-black text-left w-[45%]">COURSE PATHWAY</th>
                         {reportMode === "mid1" && (
                           <>
-                            <th className="p-2.5 border-r-4 border-black">TEST 1 (/50)</th>
-                            <th className="p-2.5 border-r-4 border-black">MID 1 (/50)</th>
+                            <th className="p-2 border-r-4 border-black">TEST 1 (/50)</th>
+                            <th className="p-2 border-r-4 border-black">MID 1 (/50)</th>
                           </>
                         )}
                         {reportMode === "mid2" && (
                           <>
-                            <th className="p-2.5 border-r-4 border-black">TEST 2 (/50)</th>
-                            <th className="p-2.5 border-r-4 border-black">MID 2 (/50)</th>
+                            <th className="p-2 border-r-4 border-black">TEST 2 (/50)</th>
+                            <th className="p-2 border-r-4 border-black">MID 2 (/50)</th>
                           </>
                         )}
                         {reportMode === "summation" && (
                           <>
-                            <th className="p-2.5 border-r-2 border-black text-[10px]">T1 (/50)</th>
-                            <th className="p-2.5 border-r-2 border-black text-[10px]">M1 (/50)</th>
-                            <th className="p-2.5 border-r-2 border-black text-[10px]">T2 (/50)</th>
-                            <th className="p-2.5 border-r-4 border-black text-[10px]">M2 (/50)</th>
+                            <th className="p-2 border-r-2 border-black text-[9px]">T1 (/50)</th>
+                            <th className="p-2 border-r-2 border-black text-[9px]">M1 (/50)</th>
+                            <th className="p-2 border-r-2 border-black text-[9px]">T2 (/50)</th>
+                            <th className="p-2 border-r-4 border-black text-[9px]">M2 (/50)</th>
                           </>
                         )}
-                        <th className="p-2.5">TOTAL</th>
+                        <th className="p-2">TOTAL</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -445,66 +445,66 @@ function ReportCardsEngine() {
                         const hasMarks = t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-";
 
                         return (
-                          <tr key={sub} className="border-b-2 border-black text-gray-900 text-[13px] font-black">
-                            <td className="p-2.5 py-3 border-r-4 border-black text-left font-black uppercase text-blue-950">{sub}</td>
+                          <tr key={sub} className="border-b-2 border-black text-gray-900 text-[12px] font-black">
+                            <td className="p-2 py-2 border-r-4 border-black text-left font-black uppercase text-blue-950">{sub}</td>
                             {reportMode === "mid1" && (
                               <>
-                                <td className="p-2.5 border-r-2 border-black text-gray-950">{t1}</td>
-                                <td className="p-2.5 border-r-4 border-black text-gray-950">{m1}</td>
+                                <td className="p-2 border-r-2 border-black text-gray-950">{t1}</td>
+                                <td className="p-2 border-r-4 border-black text-gray-950">{m1}</td>
                               </>
                             )}
                             {reportMode === "mid2" && (
                               <>
-                                <td className="p-2.5 border-r-2 border-black text-gray-950">{t2}</td>
-                                <td className="p-2.5 border-r-4 border-black text-gray-950">{m2}</td>
+                                <td className="p-2 border-r-2 border-black text-gray-950">{t2}</td>
+                                <td className="p-2 border-r-4 border-black text-gray-950">{m2}</td>
                               </>
                             )}
                             {reportMode === "summation" && (
                               <>
-                                <td className="p-2.5 border-r-2 border-black text-gray-950">{t1}</td>
-                                <td className="p-2.5 border-r-2 border-black text-gray-950">{m1}</td>
-                                <td className="p-2.5 border-r-2 border-black text-gray-950">{t2}</td>
-                                <td className="p-2.5 border-r-4 border-black text-gray-950">{m2}</td>
+                                <td className="p-2 border-r-2 border-black text-gray-950">{t1}</td>
+                                <td className="p-2 border-r-2 border-black text-gray-950">{m1}</td>
+                                <td className="p-2 border-r-2 border-black text-gray-950">{t2}</td>
+                                <td className="p-2 border-r-4 border-black text-gray-950">{m2}</td>
                               </>
                             )}
-                            <td className="p-2.5 font-black text-blue-900">
+                            <td className="p-2 font-black text-blue-900">
                               {hasMarks ? `${subTotal} / ${subMax}` : "-"}
                             </td>
                           </tr>
                         );
                       })}
-                      <tr className="bg-blue-50/80 font-black text-blue-950 border-t-4 border-black text-xs tr-total">
-                        <td colSpan={reportMode === "summation" ? 2 : 1} className="p-3 border-r-4 border-black text-center uppercase tracking-wider text-[11px]">
-                          TOTAL SCORE: <span className="text-blue-900 text-sm block mt-0.5 font-serif">{student.totalAcquiredMarks} / {student.totalMaxPossible}</span>
+                      <tr className="bg-blue-50/80 font-black text-blue-950 border-t-4 border-black text-[11px] tr-total">
+                        <td colSpan={reportMode === "summation" ? 2 : 1} className="p-2.5 border-r-4 border-black text-center uppercase tracking-wider">
+                          TOTAL SCORE: <span className="text-blue-900 text-xs block mt-0.5 font-serif">{student.totalAcquiredMarks} / {student.totalMaxPossible}</span>
                         </td>
-                        <td colSpan={reportMode === "summation" ? 2 : 1} className="p-3 border-r-4 border-black text-center uppercase tracking-wider text-[11px]">
-                          PERCENTAGE: <span className="text-blue-900 text-sm block mt-0.5 font-serif">{student.percentage.toFixed(1)}%</span>
+                        <td colSpan={reportMode === "summation" ? 2 : 1} className="p-2.5 border-r-4 border-black text-center uppercase tracking-wider">
+                          PERCENTAGE: <span className="text-blue-900 text-xs block mt-0.5 font-serif">{student.percentage.toFixed(1)}%</span>
                         </td>
-                        <td colSpan={2} className="p-3 text-center uppercase tracking-wider text-[11px]">
-                          POSITION: <span className="text-green-800 text-sm block mt-0.5 font-serif">{formatPosition(student.position)} OUT OF {students.length}</span>
+                        <td colSpan={2} className="p-2.5 text-center uppercase tracking-wider">
+                          POSITION: <span className="text-green-800 text-xs block mt-0.5 font-serif">{formatPosition(student.position)} OUT OF {students.length}</span>
                         </td>
                       </tr>
                     </tbody>
                   </table>
 
-                  <div className="space-y-1 text-left print-comment-area flex-grow">
-                    <span className="text-blue-950 font-black uppercase text-[11px] tracking-wider">Class Teacher's Comments & General Observations:</span>
-                    <div className="border-4 border-black rounded-xl p-4 font-black text-gray-900 text-[12px] italic tracking-wide leading-relaxed flex items-center print-comment-box min-h-[75px]">
+                  <div className="space-y-0.5 text-left print-comment-area">
+                    <span className="text-blue-950 font-black uppercase text-[10px] tracking-wider">Class Teacher's Comments & General Observations:</span>
+                    <div className="border-4 border-black rounded-xl p-2.5 bg-gray-50 font-black text-gray-900 text-[11px] italic tracking-wide leading-relaxed flex items-center print-comment-box min-h-[54px]">
                       "{getAutomaticComment(student.percentage, student.totalMaxPossible, studentMarks)}"
                     </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-8 pt-4 border-t-4 border-dashed border-gray-400 font-black items-end print-signatures mt-auto bg-white relative z-10">
+                <div className="grid grid-cols-2 gap-8 pt-2 border-t-4 border-dashed border-gray-400 font-black items-end print-signatures mt-auto bg-white relative z-10">
                   <div className="space-y-0.5">
                     <span className="text-gray-400 uppercase tracking-widest block text-[9px]">Class Teacher:</span>
-                    <div className="h-9 flex items-end pb-0.5 text-sm uppercase text-blue-900 tracking-wider font-black print-teacher-line">
+                    <div className="h-8 flex items-end pb-0.5 text-xs uppercase text-blue-900 tracking-wider font-black print-teacher-line">
                       {classTeacherName || "_______________________"}
                     </div>
                   </div>
                   <div className="flex flex-col items-end space-y-0.5">
                     <span className="text-gray-400 uppercase tracking-widest block text-[9px] text-right w-40">Official School Authority:</span>
-                    <div className="border-4 border-dashed border-gray-400 rounded-xl w-36 h-16 flex items-center justify-center bg-gray-50/50 text-[9px] uppercase tracking-wider text-gray-400 font-black print-stamp">
+                    <div className="border-4 border-dashed border-gray-400 rounded-xl w-32 h-14 flex items-center justify-center bg-gray-50/50 text-[9px] uppercase tracking-wider text-gray-400 font-black print-stamp">
                       School Stamp Only
                     </div>
                   </div>

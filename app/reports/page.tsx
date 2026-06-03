@@ -226,7 +226,7 @@ function ReportCardsEngine() {
         @media print {
           @page {
             size: A4 portrait;
-            margin: 15mm 12mm 15mm 12mm;
+            margin: 0mm;
           }
           body {
             background: white !important;
@@ -236,11 +236,14 @@ function ReportCardsEngine() {
           .print-card {
             border: 5px solid black !important;
             padding: 16px 18px 14px 18px !important;
-            margin: 0 auto !important;
+            margin-top: 10mm !important;
+            margin-bottom: 0mm !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
             box-shadow: none !important;
-            width: 100% !important;
-            max-height: 258mm !important;
-            height: 258mm !important;
+            width: 185mm !important;
+            max-height: 254mm !important;
+            height: 254mm !important;
             page-break-after: always !important;
             page-break-inside: avoid !important;
             display: flex !important;

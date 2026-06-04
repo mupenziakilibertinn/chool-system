@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase"; 
+import { db } from "../../lib/firebase"; 
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 
 interface MarkData {
@@ -11,55 +11,60 @@ interface MarkData {
 interface Student {
   id: string;
   name: string;
-  class: string; // Changed from className to class to match your DB perfectly
+  class: string;
 }
 
 export default function ReportCardsPage() {
   const [students, setStudents] = useState<Student[]>([]);
-  const [marks, setMarks] = useState<{ [studentId: string]: { [subject: string]: MarkData } }>({});
+  const [marks, setMarks] = useState<{ [studentId: string]: { [subjectId: string]: MarkData } }>({});
   const [selectedClass, setSelectedClass] = useState<string>("P4");
   const [selectedTerm, setSelectedTerm] = useState<string>("term1");
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Updated to match your exact Firestore subject collection document IDs
-  const coreSubjects = ["Mathematics", "English", "SET", "Social Studies", "Kinyarwanda"];
+  // Exact Subject Database Document IDs from your lib/marksLogic setup
+  const academicSubjects = [
+    { id: "math", displayName: "Mathematics" },
+    { id: "eng", displayName: "English" },
+    { id: "set", displayName: "Science & Elem. Tech (SET)" },
+    { id: "social", displayName: "Social Studies" },
+    { id: "kiny", displayName: "Kinyarwanda" }
+  ];
 
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       try {
-        // 1. Fetch Students matching the exact class field
+        // 1. Fetch Students
         const studentSnap = await getDocs(collection(db, "students"));
         const studentList: Student[] = [];
         
         studentSnap.forEach((doc) => {
           const data = doc.data();
-          // Read "class" field directly from your database
           const studentClass = (data.class || data.className || "").toUpperCase();
           if (studentClass === selectedClass.toUpperCase()) {
             studentList.push({ id: doc.id, name: data.name, class: studentClass });
           }
         });
         
-        // Sort students alphabetically by name
         studentList.sort((a, b) => a.name.localeCompare(b.name));
         setStudents(studentList);
 
-        // 2. Fetch Marks Matrix matching exact layout definitions
-        const marksMatrix: { [studentId: string]: { [subject: string]: MarkData } } = {};
+        // 2. Fetch Marks Matrix matching exact lower-case document IDs
+        const marksMatrix: { [studentId: string]: { [subjectId: string]: MarkData } } = {};
         for (const student of studentList) {
           marksMatrix[student.id] = {};
-          const allSubjects = [...coreSubjects, "French", "Creative Arts", "Physical Education"];
           
-          for (const subject of allSubjects) {
-            const markDocRef = doc(db, "students", student.id, "marks", subject);
+          const targetIds = ["math", "eng", "set", "social", "kiny", "french", "arts", "sports"];
+          
+          for (const subId of targetIds) {
+            const markDocRef = doc(db, "students", student.id, "marks", subId);
             const markDocSnap = await getDoc(markDocRef);
-            marksMatrix[student.id][subject] = markDocSnap.exists() ? markDocSnap.data() : {};
+            marksMatrix[student.id][subId] = markDocSnap.exists() ? markDocSnap.data() : {};
           }
         }
         setMarks(marksMatrix);
       } catch (error) {
-        console.error("Error loading marks matrix configuration:", error);
+        console.error("Error loading marks registry:", error);
       } finally {
         setLoading(false);
       }
@@ -68,13 +73,12 @@ export default function ReportCardsPage() {
   }, [selectedClass, selectedTerm]);
 
   if (loading) {
-    return <div className="p-8 text-center font-bold text-blue-900 tracking-wider">Loading Report Cards...</div>;
+    return <div className="p-8 text-center font-bold text-blue-900 uppercase text-xs tracking-widest animate-pulse">Loading Report Sheets Matrix...</div>;
   }
 
   return (
     <div className="p-4 bg-gray-100 min-h-screen print:bg-white print:p-0 font-sans">
       
-      {/* GLOBAL CSS INJECTION FOR CLEAN PRINTING */}
       <style jsx global>{`
         @media print {
           body {
@@ -92,7 +96,7 @@ export default function ReportCardsPage() {
         }
       `}</style>
 
-      {/* Control Panel (Hidden during printing) */}
+      {/* Control Panel Panel (Hidden during printing) */}
       <div className="mb-6 p-4 bg-white rounded-xl border-2 border-black shadow flex gap-4 items-center print:hidden text-xs font-black">
         <div>
           <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Select Class</label>
@@ -118,7 +122,7 @@ export default function ReportCardsPage() {
         </button>
       </div>
 
-      {/* Report Cards Wrapper */}
+      {/* Report Cards Container */}
       <div className="flex flex-col gap-8 items-center">
         {students.length === 0 ? (
           <div className="p-8 bg-white border-4 border-dashed border-red-500 rounded-xl text-center text-red-700 font-black uppercase text-xs w-full max-w-md">
@@ -131,7 +135,7 @@ export default function ReportCardsPage() {
             let examTotalAcquired = 0;
             let examMaxTotal = 0;
 
-            const hasFrench = student.class.toUpperCase() !== "P6";
+            const isP6 = student.class.toUpperCase() === "P6";
 
             return (
               <div key={student.id} className="w-[210mm] min-h-[297mm] bg-white p-8 shadow-lg border-4 border-black flex flex-col justify-between print:shadow-none print:border-none print:p-0 page-break">
@@ -164,8 +168,8 @@ export default function ReportCardsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {coreSubjects.map((subject) => {
-                          const sMarks = marks[student.id]?.[subject] || {};
+                        {academicSubjects.map((sub) => {
+                          const sMarks = marks[student.id]?.[sub.id] || {};
                           const m1 = Number(sMarks[`${selectedTerm}_m1`]) || 0;
                           const t2 = Number(sMarks[`${selectedTerm}_t2`]) || 0;
                           const subjectMidTotal = m1 + t2;
@@ -174,17 +178,17 @@ export default function ReportCardsPage() {
                           midMaxTotal += 100;
 
                           return (
-                            <tr key={subject} className="border-b border-gray-300 text-gray-800">
-                              <td className="p-2 border border-black font-black text-blue-950 uppercase">{subject === "SET" ? "Science & Elem. Tech (SET)" : subject}</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_m1`] !== undefined ? m1 : "-"} / 50</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_t2`] !== undefined ? t2 : "-"} / 50</td>
+                            <tr key={sub.id} className="border-b border-gray-300 text-gray-800">
+                              <td className="p-2 border border-black font-black text-blue-950 uppercase">{sub.displayName}</td>
+                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_m1`] !== undefined ? `${m1} / 50` : "-"}</td>
+                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_t2`] !== undefined ? `${t2} / 50` : "-"}</td>
                               <td className="p-2 border border-black text-center font-serif text-[13px] font-black bg-gray-50 text-blue-900">{subjectMidTotal} / 100</td>
                             </tr>
                           );
                         })}
 
-                        {hasFrench && (() => {
-                          const sMarks = marks[student.id]?.["French"] || {};
+                        {!isP6 && (() => {
+                          const sMarks = marks[student.id]?.[ "french" ] || {};
                           const m1 = Number(sMarks[`${selectedTerm}_m1`]) || 0;
                           const t2 = Number(sMarks[`${selectedTerm}_t2`]) || 0;
                           const subjectMidTotal = m1 + t2;
@@ -195,8 +199,8 @@ export default function ReportCardsPage() {
                           return (
                             <tr className="border-b border-black text-gray-800">
                               <td className="p-2 border border-black font-black text-blue-950 uppercase">French</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_m1`] !== undefined ? m1 : "-"} / 25</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_t2`] !== undefined ? t2 : "-"} / 25</td>
+                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_m1`] !== undefined ? `${m1} / 25` : "-"}</td>
+                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_t2`] !== undefined ? `${t2} / 25` : "-"}</td>
                               <td className="p-2 border border-black text-center font-serif text-[13px] font-black bg-gray-50 text-blue-900">{subjectMidTotal} / 50</td>
                             </tr>
                           );
@@ -217,24 +221,24 @@ export default function ReportCardsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {coreSubjects.map((subject) => {
-                          const sMarks = marks[student.id]?.[subject] || {};
+                        {academicSubjects.map((sub) => {
+                          const sMarks = marks[student.id]?.[sub.id] || {};
                           const exam = Number(sMarks[`${selectedTerm}_exam`]) || 0;
 
                           examTotalAcquired += exam;
                           examMaxTotal += 50;
 
                           return (
-                            <tr key={subject} className="border-b border-gray-300 text-gray-800">
-                              <td className="p-2 border border-black font-black text-blue-950 uppercase">{subject === "SET" ? "Science & Elem. Tech (SET)" : subject}</td>
+                            <tr key={sub.id} className="border-b border-gray-300 text-gray-800">
+                              <td className="p-2 border border-black font-black text-blue-950 uppercase">{sub.displayName}</td>
                               <td className="p-2 border border-black text-center font-serif text-[14px] font-black text-blue-900">{sMarks[`${selectedTerm}_exam`] !== undefined ? exam : "-"}</td>
                               <td className="p-2 border border-black text-center text-gray-400">/ 50 Marks</td>
                             </tr>
                           );
                         })}
 
-                        {hasFrench && (() => {
-                          const sMarks = marks[student.id]?.["French"] || {};
+                        {!isP6 && (() => {
+                          const sMarks = marks[student.id]?.[ "french" ] || {};
                           const exam = Number(sMarks[`${selectedTerm}_exam`]) || 0;
 
                           examTotalAcquired += exam;
@@ -279,13 +283,13 @@ export default function ReportCardsPage() {
                         <div className="p-2 bg-white rounded-xl border border-gray-300 flex justify-between items-center">
                           <span className="text-gray-900 uppercase text-[10px]">Creative Arts & Expression</span>
                           <span className="font-serif font-black bg-purple-50 text-purple-900 px-2.5 py-0.5 border border-purple-300 rounded-lg">
-                            {marks[student.id]?.["Creative Arts"]?.[`${selectedTerm}_exam`] !== undefined ? marks[student.id]?.["Creative Arts"]?.[`${selectedTerm}_exam`] : "-"} / 10
+                            {marks[student.id]?.["arts"]?.[`${selectedTerm}_exam`] !== undefined ? marks[student.id]?.["arts"]?.[`${selectedTerm}_exam`] : "-"} / 10
                           </span>
                         </div>
                         <div className="p-2 bg-white rounded-xl border border-gray-300 flex justify-between items-center">
                           <span className="text-gray-900 uppercase text-[10px]">Physical Education & Sports</span>
                           <span className="font-serif font-black bg-orange-50 text-orange-900 px-2.5 py-0.5 border border-orange-300 rounded-lg">
-                            {marks[student.id]?.["Physical Education"]?.[`${selectedTerm}_exam`] !== undefined ? marks[student.id]?.["Physical Education"]?.[`${selectedTerm}_exam`] : "-"} / 10
+                            {marks[student.id]?.["sports"]?.[`${selectedTerm}_exam`] !== undefined ? marks[student.id]?.["sports"]?.[`${selectedTerm}_exam`] : "-"} / 10
                           </span>
                         </div>
                       </div>
@@ -294,7 +298,7 @@ export default function ReportCardsPage() {
 
                 </div>
 
-                {/* Clean Signature System (No underlines at all underneath text strings) */}
+                {/* Clean Signature System (No underlines) */}
                 <div className="mt-6 pt-4 border-t-2 border-black grid grid-cols-2 gap-12 text-center text-[10px] font-black uppercase tracking-wider text-gray-400">
                   <div>
                     <div className="h-8 flex items-end justify-center pb-1 text-xs uppercase text-blue-950 font-black" />

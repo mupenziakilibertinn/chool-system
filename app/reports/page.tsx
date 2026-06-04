@@ -1,317 +1,464 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { db } from "../../lib/firebase"; 
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { db } from "../../lib/firebase";
+import { collection, getDocs } from "firebase/firestore";
 
-interface MarkData {
-  [key: string]: any;
-}
+// The exact list of subject collection IDs matching your database architecture
+const subjectsList = ["math", "kiny", "eng", "set", "social", "french", "arts", "sports"];
 
-interface Student {
-  id: string;
-  name: string;
-  class: string;
-}
+// Display titles for matching your hard-copy format exactly
+const displaySubjectName = (id: string) => {
+  switch (id) {
+    case "math": return "Mathematics";
+    case "kiny": return "Kinyarwanda";
+    case "eng": return "English";
+    case "set": return "Science & Elem. Tech (SET)";
+    case "social": return "Social Studies";
+    case "french": return "French";
+    case "arts": return "Creative Arts & Expression";
+    case "sports": return "Physical Education & Sports";
+    default: return id.toUpperCase();
+  }
+};
 
-export default function ReportCardsPage() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [marks, setMarks] = useState<{ [studentId: string]: { [subjectId: string]: MarkData } }>({});
-  const [selectedClass, setSelectedClass] = useState<string>("P4");
-  const [selectedTerm, setSelectedTerm] = useState<string>("term1");
-  const [loading, setLoading] = useState<boolean>(true);
+type ReportMode = "mid1" | "mid2" | "summation";
 
-  // Exact Subject Database Document IDs from your lib/marksLogic setup
-  const academicSubjects = [
-    { id: "math", displayName: "Mathematics" },
-    { id: "eng", displayName: "English" },
-    { id: "set", displayName: "Science & Elem. Tech (SET)" },
-    { id: "social", displayName: "Social Studies" },
-    { id: "kiny", displayName: "Kinyarwanda" }
-  ];
+function ReportCardsEngine() {
+  const searchParams = useSearchParams();
+  
+  const urlClass = searchParams.get("class");
+  const urlStudentId = searchParams.get("studentId");
+  const activeClass = urlClass ? urlClass.toUpperCase() : "P4";
+  
+  const [selectedTerm, setSelectedTerm] = useState("term1");
+  const [reportMode, setReportMode] = useState<ReportMode>("summation");
+  const [students, setStudents] = useState<any[]>([]);
+  const [allMarks, setAllMarks] = useState<any>({});
+  const [classTeacherName, setClassTeacherName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [activeStudentId, setActiveStudentId] = useState<string | null>(urlStudentId);
+  const [isPrintAllMode, setIsPrintAllMode] = useState(false);
 
   useEffect(() => {
-    async function fetchData() {
+    setActiveStudentId(urlStudentId);
+  }, [urlStudentId]);
+
+  useEffect(() => {
+    const fetchClassReports = async () => {
       setLoading(true);
       try {
-        // 1. Fetch Students
-        const studentSnap = await getDocs(collection(db, "students"));
-        const studentList: Student[] = [];
-        
-        studentSnap.forEach((doc) => {
-          const data = doc.data();
-          const studentClass = (data.class || data.className || "").toUpperCase();
-          if (studentClass === selectedClass.toUpperCase()) {
-            studentList.push({ id: doc.id, name: data.name, class: studentClass });
+        // 1. Instantly fetch teacher name
+        const tSnap = await getDocs(collection(db, "teachers"));
+        let detectedTeacher = "";
+        tSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          const docClassTeacherOf = data.classTeacherOf ? data.classTeacherOf.toUpperCase() : "";
+          if (docClassTeacherOf === activeClass) {
+            detectedTeacher = data.name || "";
+          } else if (data.classes && Array.isArray(data.classes)) {
+            const hasClass = data.classes.map((c: string) => c.toUpperCase()).includes(activeClass);
+            if (hasClass && !detectedTeacher) {
+              detectedTeacher = data.name || "";
+            }
           }
         });
-        
-        studentList.sort((a, b) => a.name.localeCompare(b.name));
-        setStudents(studentList);
+        setClassTeacherName(detectedTeacher.toUpperCase());
 
-        // 2. Fetch Marks Matrix matching exact lower-case document IDs
-        const marksMatrix: { [studentId: string]: { [subjectId: string]: MarkData } } = {};
-        for (const student of studentList) {
+        // 2. Fetch all students in one batch
+        const sSnap = await getDocs(collection(db, "students"));
+        const classFiltered = sSnap.docs
+          .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
+          .filter((s) => s.class?.toUpperCase() === activeClass);
+
+        // 3. Parallelize subcollection queries (Super fast loading optimization)
+        let marksMatrix: any = {};
+        await Promise.all(classFiltered.map(async (student) => {
+          const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
           marksMatrix[student.id] = {};
-          
-          const targetIds = ["math", "eng", "set", "social", "kiny", "french", "arts", "sports"];
-          
-          for (const subId of targetIds) {
-            const markDocRef = doc(db, "students", student.id, "marks", subId);
-            const markDocSnap = await getDoc(markDocRef);
-            marksMatrix[student.id][subId] = markDocSnap.exists() ? markDocSnap.data() : {};
-          }
-        }
-        setMarks(marksMatrix);
-      } catch (error) {
-        console.error("Error loading marks registry:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchData();
-  }, [selectedClass, selectedTerm]);
+          mSnap.forEach((docSnap) => {
+            marksMatrix[student.id][docSnap.id.toLowerCase()] = docSnap.data();
+          });
+        }));
+        setAllMarks(marksMatrix);
 
-  if (loading) {
-    return <div className="p-8 text-center font-bold text-blue-900 uppercase text-xs tracking-widest animate-pulse">Loading Report Sheets Matrix...</div>;
-  }
+        // 4. Score summation engine tracking exact weights
+        const studentsWithScores = classFiltered.map((student) => {
+          const studentMarks = marksMatrix[student.id] || {};
+          let totalMaxPossible = 0;
+          let totalAcquiredMarks = 0;
+
+          subjectsList.forEach((sub) => {
+            // Co-curricular entries are evaluated out of 10 at the bottom row of the layout
+            if (sub === "arts" || sub === "sports") return;
+            if (activeClass === "P6" && sub === "french") return;
+
+            const isFrenchP1P5 = sub === "french" && activeClass !== "P6";
+            const baseMax = isFrenchP1P5 ? 25 : 50;
+
+            const mData = studentMarks[sub] || {};
+            const t1 = mData[`${selectedTerm}_t1`] ?? "-";
+            const m1 = mData[`${selectedTerm}_m1`] ?? "-";
+            const t2 = mData[`${selectedTerm}_t2`] ?? "-";
+            const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
+            const v1 = t1 !== "-" ? Number(t1) : 0;
+            const v2 = m1 !== "-" ? Number(m1) : 0;
+            const v3 = t2 !== "-" ? Number(t2) : 0;
+            const v4 = m2 !== "-" ? Number(m2) : 0;
+
+            if (reportMode === "mid1") {
+              totalAcquiredMarks += (v1 + v2);
+              totalMaxPossible += (baseMax * 2);
+            } else if (reportMode === "mid2") {
+              totalAcquiredMarks += (v3 + v4);
+              totalMaxPossible += (baseMax * 2);
+            } else {
+              totalAcquiredMarks += (v1 + v2 + v3 + v4);
+              totalMaxPossible += (baseMax * 2);
+            }
+          });
+
+          const percentage = totalMaxPossible > 0 ? (totalAcquiredMarks / totalMaxPossible) * 100 : 0;
+          return {
+            ...student,
+            totalAcquiredMarks,
+            totalMaxPossible,
+            percentage
+          };
+        });
+
+        // 5. Automatic sorting and ranking calculations
+        studentsWithScores.sort((a, b) => b.percentage - a.percentage);
+        let currentRank = 1;
+        const rankedStudents = studentsWithScores.map((student, index, arr) => {
+          if (index > 0 && student.percentage < arr[index - 1].percentage) {
+            currentRank = index + 1;
+          }
+          return { ...student, position: currentRank };
+        });
+
+        rankedStudents.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setStudents(rankedStudents);
+      } catch (err) {
+        console.error("Data matrix failure:", err);
+      }
+      setLoading(false);
+    };
+
+    fetchClassReports();
+  }, [activeClass, selectedTerm, reportMode]);
+
+  const handlePrintAll = () => {
+    setIsPrintAllMode(true);
+    setActiveStudentId(null);
+    setTimeout(() => { window.print(); }, 500);
+  };
+
+  const handlePrintSingle = (studentId: string) => {
+    setIsPrintAllMode(false);
+    setActiveStudentId(studentId);
+    setTimeout(() => { window.print(); }, 500);
+  };
+
+  const getAutomaticComment = (percentage: number, max: number) => {
+    if (max === 0) return "No marks recorded for this academic period.";
+    if (percentage >= 85) return "An exceptional academic performance this term! Highly disciplined, consistent, and exemplary work across all course pathways. Keep up this brilliant standard.";
+    if (percentage >= 70) return "A very strong and commendable performance. Shows steady focus and capability in all subjects. Keep pushing for even higher grades next term.";
+    if (percentage >= 50) return "Fair performance this term. The learner has passed, but needs to increase general effort and concentration across all pathways to secure better marks.";
+    return "Performance did not reach the passing threshold this term. Closer supervision, regular study habits, and a complete change of attitude toward schoolwork are required.";
+  };
+
+  const formatPosition = (pos: number) => {
+    const j = pos % 10, k = pos % 100;
+    if (j === 1 && k !== 11) return pos + "st";
+    if (j === 2 && k !== 12) return pos + "nd";
+    if (j === 3 && k !== 13) return pos + "rd";
+    return pos + "th";
+  };
+
+  const getReportTitle = () => {
+    if (reportMode === "mid1") return "MID-TERM 1 LEARNER TRANSCRIPT";
+    if (reportMode === "mid2") return "MID-TERM 2 LEARNER TRANSCRIPT";
+    return "OFFICIAL END-OF-TERM PERFORMANCE SUMMATION";
+  };
+
+  if (loading) return <div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest animate-pulse">Generating Clean Report Matrices...</div>;
 
   return (
-    <div className="p-4 bg-gray-100 min-h-screen print:bg-white print:p-0 font-sans">
-      
-      <style jsx global>{`
+    <div className="min-h-screen bg-gray-100 font-sans text-xs pb-20">
+      <style dangerouslySetInnerHTML={{__html: `
         @media print {
-          body {
-            background-color: #ffffff !important;
-          }
-          .page-break {
-            page-break-after: always !important;
-            break-after: page !important;
-            clear: both !important;
-          }
           @page {
             size: A4 portrait;
-            margin: 15mm 10mm 15mm 10mm;
+            margin: 6mm 8mm 6mm 8mm;
           }
+          body {
+            background: white !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .print-card {
+            border: 5px solid black !important;
+            padding: 24px 24px 20px 24px !important;
+            margin: 0 auto !important;
+            box-shadow: none !important;
+            width: 100% !important;
+            max-height: 284mm !important;
+            height: 284mm !important;
+            page-break-after: always !important;
+            page-break-inside: avoid !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            box-sizing: border-box !important;
+          }
+          .print-header-layout { display: flex !important; align-items: center !important; justify-content: flex-start !important; width: 100% !important; }
+          .print-text-area { text-align: left !important; margin-left: 24px !important; flex-grow: 1 !important; }
+          .print-header h2 { font-size: 28px !important; margin: 0 !important; }
+          .print-header p { font-size: 12px !important; margin-top: 6px !important; }
+          .print-meta { padding: 10px 14px !important; margin-top: 12px !important; font-size: 12px !important; }
+          .print-meta span { font-size: 14px !important; }
+          .print-table { margin-top: 14px !important; font-size: 13px !important; flex-grow: 0.2 !important; }
+          .print-table th { padding: 10px 6px !important; font-size: 11px !important; }
+          .print-table td { padding: 12px 6px !important; font-size: 13px !important; }
+          .print-table .tr-total td { padding: 14px 6px !important; font-size: 13px !important; }
+          .print-comment-area { margin-top: 16px !important; flex-grow: 1 !important; display: flex !important; flex-direction: column !important; justify-content: flex-start !important; }
+          .print-comment-area span { font-size: 12px !important; }
+          .print-comment-box { padding: 14px 16px !important; flex-grow: 1 !important; min-height: 90px !important; font-size: 12px !important; margin-top: 6px !important; }
+          .print-signatures { margin-top: auto !important; padding-top: 16px !important; }
+          .print-signatures span { font-size: 11px !important; }
+          .print-stamp { height: 75px !important; width: 145px !important; font-size: 11px !important; }
+          .print-teacher-line { font-size: 13px !important; width: 240px !important; height: 36px !important; border: none !important; }
+          .print-logo { height: 100px !important; width: 100px !important; display: block !important; }
         }
-      `}</style>
+      `}} />
 
-      {/* Control Panel Panel (Hidden during printing) */}
-      <div className="mb-6 p-4 bg-white rounded-xl border-2 border-black shadow flex gap-4 items-center print:hidden text-xs font-black">
-        <div>
-          <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Select Class</label>
-          <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value.toUpperCase())} className="border-2 border-black p-2 rounded-xl text-xs bg-gray-50 font-black uppercase">
-            <option value="P1">Primary 1 (P1)</option>
-            <option value="P2">Primary 2 (P2)</option>
-            <option value="P3">Primary 3 (P3)</option>
-            <option value="P4">Primary 4 (P4)</option>
-            <option value="P5">Primary 5 (P5)</option>
-            <option value="P6">Primary 6 (P6)</option>
-          </select>
+      {/* Control Panel (Hidden during printing) */}
+      <div className="bg-white border-b-2 p-4 shadow-sm print:hidden">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex flex-wrap gap-4 items-center">
+            <div>
+              <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Class Focus</label>
+              <div className="p-2 border-2 rounded-xl font-black bg-gray-100 text-blue-900 text-xs px-4 uppercase">
+                Class Stream {activeClass}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Target Term</label>
+              <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="p-2 border-2 rounded-xl font-black bg-white text-xs">
+                <option value="term1">Term 1</option>
+                <option value="term2">Term 2</option>
+                <option value="term3">Term 3</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[9px] font-black uppercase text-blue-900 mb-0.5">Report Layout Type</label>
+              <select value={reportMode} onChange={(e) => setReportMode(e.target.value as ReportMode)} className="p-2 border-2 border-blue-900 rounded-xl font-black bg-white text-xs text-blue-900">
+                <option value="mid1">Separate Mid-Term 1 Report</option>
+                <option value="mid2">Separate Mid-Term 2 Report</option>
+                <option value="summation">Full Term Summation Report</option>
+              </select>
+            </div>
+          </div>
+          <button onClick={handlePrintAll} className="bg-green-700 hover:bg-green-800 text-white font-black text-xs uppercase px-5 py-3 rounded-xl shadow transition-all flex items-center gap-2">
+            Print Entire Class Register (Single Click) 🖨️✨
+          </button>
         </div>
-        <div>
-          <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Active Term</label>
-          <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="border-2 border-black p-2 rounded-xl text-xs bg-gray-50 font-black">
-            <option value="term1">Term 1</option>
-            <option value="term2">Term 2</option>
-            <option value="term3">Term 3</option>
-          </select>
-        </div>
-        <button onClick={() => window.print()} className="ml-auto bg-blue-900 hover:bg-blue-950 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow border-2 border-black transition-colors">
-          Print All Reports 📋
-        </button>
       </div>
 
-      {/* Report Cards Container */}
-      <div className="flex flex-col gap-8 items-center">
+      {/* Report Cards Generation Block */}
+      <div className="max-w-4xl mx-auto p-4 space-y-12 mt-6">
         {students.length === 0 ? (
-          <div className="p-8 bg-white border-4 border-dashed border-red-500 rounded-xl text-center text-red-700 font-black uppercase text-xs w-full max-w-md">
-            No students found enrolled in class {selectedClass}.
-          </div>
+          <div className="text-center font-black p-10 text-gray-400 uppercase">No students discovered registered inside Class Stream {activeClass}</div>
         ) : (
           students.map((student) => {
-            let midTotalAcquired = 0;
-            let midMaxTotal = 0;
-            let examTotalAcquired = 0;
-            let examMaxTotal = 0;
-
-            const isP6 = student.class.toUpperCase() === "P6";
+            const studentMarks = allMarks[student.id] || {};
+            const isVisible = isPrintAllMode || activeStudentId === student.id || activeStudentId === null;
+            if (!isVisible) return null;
 
             return (
-              <div key={student.id} className="w-[210mm] min-h-[297mm] bg-white p-8 shadow-lg border-4 border-black flex flex-col justify-between print:shadow-none print:border-none print:p-0 page-break">
+              <div key={student.id} className={`bg-white border-4 border-black p-8 shadow-md rounded-xl relative overflow-hidden print-card flex flex-col justify-between ${activeStudentId === student.id ? "ring-4 ring-blue-900" : ""}`}>
                 
-                <div>
-                  {/* Header Section */}
-                  <div className="text-center border-b-4 border-blue-900 pb-3 mb-4">
-                    <h1 className="text-2xl font-black text-blue-900 uppercase tracking-wide">New Generation School</h1>
-                    <p className="text-xs uppercase font-black text-gray-400 tracking-widest mt-0.5">Official Student Progress Report Card</p>
-                  </div>
-
-                  {/* Student Info Details */}
-                  <div className="grid grid-cols-2 gap-4 mb-6 bg-blue-50/40 p-3 rounded-xl border-2 border-blue-200 text-xs font-black">
-                    <div><span className="text-gray-400 uppercase text-[10px]">Student Name:</span> <br/><strong className="text-blue-950 uppercase text-sm">{student.name}</strong></div>
-                    <div><span className="text-gray-400 uppercase text-[10px]">Classroom Level:</span> <br/><strong className="text-blue-950 uppercase text-sm">{student.class}</strong></div>
-                    <div><span className="text-gray-400 uppercase text-[10px]">Academic Period:</span> <br/><strong className="text-blue-950 uppercase text-sm">{selectedTerm}</strong></div>
-                    <div><span className="text-gray-400 uppercase text-[10px]">Evaluation Status:</span> <br/><strong className="text-green-700 uppercase text-sm">Completed</strong></div>
-                  </div>
-
-                  {/* ==================== PART 1: MID ASSESSMENT PERIOD ==================== */}
-                  <div className="mb-6">
-                    <h2 className="text-xs font-black uppercase text-blue-900 tracking-wider mb-2 pb-1 border-b-2 border-blue-900">PART 1: MID-TERM ASSESSMENTS</h2>
-                    <table className="w-full text-left border-collapse border-2 border-black text-xs font-black">
-                      <thead>
-                        <tr className="bg-gray-100 text-blue-950 uppercase border-b-2 border-black text-[10px] tracking-wide">
-                          <th className="p-2 border border-black w-1/3">Subject</th>
-                          <th className="p-2 border border-black text-center">Mid Assessment 1</th>
-                          <th className="p-2 border border-black text-center">Mid Assessment 2</th>
-                          <th className="p-2 border border-black text-center bg-gray-200">Mid-Term Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {academicSubjects.map((sub) => {
-                          const sMarks = marks[student.id]?.[sub.id] || {};
-                          const m1 = Number(sMarks[`${selectedTerm}_m1`]) || 0;
-                          const t2 = Number(sMarks[`${selectedTerm}_t2`]) || 0;
-                          const subjectMidTotal = m1 + t2;
-
-                          midTotalAcquired += subjectMidTotal;
-                          midMaxTotal += 100;
-
-                          return (
-                            <tr key={sub.id} className="border-b border-gray-300 text-gray-800">
-                              <td className="p-2 border border-black font-black text-blue-950 uppercase">{sub.displayName}</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_m1`] !== undefined ? `${m1} / 50` : "-"}</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_t2`] !== undefined ? `${t2} / 50` : "-"}</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-black bg-gray-50 text-blue-900">{subjectMidTotal} / 100</td>
-                            </tr>
-                          );
-                        })}
-
-                        {!isP6 && (() => {
-                          const sMarks = marks[student.id]?.[ "french" ] || {};
-                          const m1 = Number(sMarks[`${selectedTerm}_m1`]) || 0;
-                          const t2 = Number(sMarks[`${selectedTerm}_t2`]) || 0;
-                          const subjectMidTotal = m1 + t2;
-
-                          midTotalAcquired += subjectMidTotal;
-                          midMaxTotal += 50;
-
-                          return (
-                            <tr className="border-b border-black text-gray-800">
-                              <td className="p-2 border border-black font-black text-blue-950 uppercase">French</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_m1`] !== undefined ? `${m1} / 25` : "-"}</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-bold">{sMarks[`${selectedTerm}_t2`] !== undefined ? `${t2} / 25` : "-"}</td>
-                              <td className="p-2 border border-black text-center font-serif text-[13px] font-black bg-gray-50 text-blue-900">{subjectMidTotal} / 50</td>
-                            </tr>
-                          );
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* ==================== PART 2: FINAL EXAMINATION PERIOD ==================== */}
-                  <div className="mb-6">
-                    <h2 className="text-xs font-black uppercase text-blue-900 tracking-wider mb-2 pb-1 border-b-2 border-blue-900">PART 2: END OF TERM EXAMINATIONS</h2>
-                    <table className="w-full text-left border-collapse border-2 border-black text-xs font-black">
-                      <thead>
-                        <tr className="bg-gray-100 text-blue-950 uppercase border-b-2 border-black text-[10px] tracking-wide">
-                          <th className="p-2 border border-black w-1/3">Subject</th>
-                          <th className="p-2 border border-black text-center">Exam Score</th>
-                          <th className="p-2 border border-black text-center bg-gray-200">Maximum Weight</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {academicSubjects.map((sub) => {
-                          const sMarks = marks[student.id]?.[sub.id] || {};
-                          const exam = Number(sMarks[`${selectedTerm}_exam`]) || 0;
-
-                          examTotalAcquired += exam;
-                          examMaxTotal += 50;
-
-                          return (
-                            <tr key={sub.id} className="border-b border-gray-300 text-gray-800">
-                              <td className="p-2 border border-black font-black text-blue-950 uppercase">{sub.displayName}</td>
-                              <td className="p-2 border border-black text-center font-serif text-[14px] font-black text-blue-900">{sMarks[`${selectedTerm}_exam`] !== undefined ? exam : "-"}</td>
-                              <td className="p-2 border border-black text-center text-gray-400">/ 50 Marks</td>
-                            </tr>
-                          );
-                        })}
-
-                        {!isP6 && (() => {
-                          const sMarks = marks[student.id]?.[ "french" ] || {};
-                          const exam = Number(sMarks[`${selectedTerm}_exam`]) || 0;
-
-                          examTotalAcquired += exam;
-                          examMaxTotal += 25;
-
-                          return (
-                            <tr className="border-b border-black text-gray-800">
-                              <td className="p-2 border border-black font-black text-blue-950 uppercase">French</td>
-                              <td className="p-2 border border-black text-center font-serif text-[14px] font-black text-blue-900">{sMarks[`${selectedTerm}_exam`] !== undefined ? exam : "-"}</td>
-                              <td className="p-2 border border-black text-center text-gray-400">/ 25 Marks</td>
-                            </tr>
-                          );
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* ==================== PART 3: SUMMATION AND CO-CURRICULAR ==================== */}
-                  <div className="mb-6">
-                    <h2 className="text-xs font-black uppercase text-blue-900 tracking-wider mb-2 pb-1 border-b-2 border-blue-900">PART 3: ACADEMIC SUMMATION & TOTAL AGGREGATES</h2>
-                    <div className="grid grid-cols-3 gap-4 border-4 border-black p-3 bg-blue-950 text-white rounded-xl mb-4 font-black">
-                      <div className="text-center border-r-2 border-blue-800">
-                        <p className="text-[9px] uppercase tracking-wider text-blue-300">Mid Summaries</p>
-                        <p className="text-sm font-serif font-black mt-0.5">{midTotalAcquired} / {midMaxTotal}</p>
-                      </div>
-                      <div className="text-center border-r-2 border-blue-800">
-                        <p className="text-[9px] uppercase tracking-wider text-blue-300">Exam Summaries</p>
-                        <p className="text-sm font-serif font-black mt-0.5">{examTotalAcquired} / {examMaxTotal}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[9px] uppercase tracking-wider text-yellow-300">Final Term Grade</p>
-                        <p className="text-sm font-serif font-black text-yellow-400 mt-0.5">
-                          {midTotalAcquired + examTotalAcquired} / {midMaxTotal + examMaxTotal}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Co-Curricular Tracking block */}
-                    <div className="bg-gray-50 p-3 rounded-xl border-2 border-black font-black">
-                      <h3 className="text-[10px] font-black uppercase tracking-wider text-blue-950 mb-2">⚡ Co-Curricular Activities Summary</h3>
-                      <div className="grid grid-cols-2 gap-3 text-xs text-gray-700">
-                        <div className="p-2 bg-white rounded-xl border border-gray-300 flex justify-between items-center">
-                          <span className="text-gray-900 uppercase text-[10px]">Creative Arts & Expression</span>
-                          <span className="font-serif font-black bg-purple-50 text-purple-900 px-2.5 py-0.5 border border-purple-300 rounded-lg">
-                            {marks[student.id]?.["arts"]?.[`${selectedTerm}_exam`] !== undefined ? marks[student.id]?.["arts"]?.[`${selectedTerm}_exam`] : "-"} / 10
-                          </span>
-                        </div>
-                        <div className="p-2 bg-white rounded-xl border border-gray-300 flex justify-between items-center">
-                          <span className="text-gray-900 uppercase text-[10px]">Physical Education & Sports</span>
-                          <span className="font-serif font-black bg-orange-50 text-orange-900 px-2.5 py-0.5 border border-orange-300 rounded-lg">
-                            {marks[student.id]?.["sports"]?.[`${selectedTerm}_exam`] !== undefined ? marks[student.id]?.["sports"]?.[`${selectedTerm}_exam`] : "-"} / 10
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
+                <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none select-none z-0">
+                  <h1 className="text-8xl font-black tracking-widest text-center rotate-[320deg]">NEW GENERATION SCHOOL</h1>
                 </div>
 
-                {/* Clean Signature System (No underlines) */}
-                <div className="mt-6 pt-4 border-t-2 border-black grid grid-cols-2 gap-12 text-center text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  <div>
-                    <div className="h-8 flex items-end justify-center pb-1 text-xs uppercase text-blue-950 font-black" />
-                    <div className="border-t border-gray-300 pt-1.5">
-                      Class Teacher Signature
+                <div className="print:hidden flex justify-end gap-2 mb-4 bg-gray-50 p-2 rounded-lg border">
+                  <button onClick={() => handlePrintSingle(student.id)} className="bg-blue-900 text-white font-black px-3 py-1.5 rounded-md uppercase text-[10px]">
+                    Print Only This Card 🖨
+                  </button>
+                  {activeStudentId !== null && (
+                    <button onClick={() => setActiveStudentId(null)} className="bg-gray-600 text-white font-black px-3 py-1.5 rounded-md uppercase text-[10px]">
+                      Show All Cards ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-col justify-start space-y-4 flex-grow">
+                  {/* Header Setup */}
+                  <div className="border-b-4 border-black pb-4 print-header">
+                    <div className="flex items-center justify-start gap-6 w-full print-header-layout">
+                      <img src="/logo.png" alt="School Logo" className="h-24 w-24 object-contain flex-shrink-0 print-logo" />
+                      <div className="text-left flex-grow print-text-area">
+                        <h2 className="font-black text-3xl tracking-wide text-blue-900 uppercase leading-none m-0">NEW GENERATION SCHOOL</h2>
+                        <p className="text-xs font-black uppercase tracking-widest text-blue-900 mt-2">{getReportTitle()}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-4 text-left mt-4 text-[11px] font-black bg-gray-50 p-3 rounded-xl border-2 border-gray-200 print-meta w-full">
+                      <div className="uppercase">STUDENT: <span className="text-blue-950 text-sm font-black block mt-0.5">{student.name}</span></div>
+                      <div className="uppercase">CLASS LEVEL: <span className="text-blue-950 text-sm font-black block mt-0.5">{student.class} Stream</span></div>
+                      <div className="uppercase">ACADEMIC PERIOD: <span className="text-blue-950 text-sm font-black font-serif uppercase block mt-0.5">{selectedTerm}</span></div>
                     </div>
                   </div>
-                  <div>
-                    <div className="h-8 flex items-end justify-center pb-1 text-xs uppercase text-blue-950 font-black">
-                      School Administration
+
+                  {/* Clean Hard-Copy Grid Layout */}
+                  <table className="w-full text-center border-collapse border-4 border-black text-sm font-black print-table">
+                    <thead className="bg-gray-100 border-b-4 border-black uppercase text-[10px] tracking-wider">
+                      <tr>
+                        <th className="p-2.5 border-r-4 border-black text-left w-[45%]">COURSE PATHWAY</th>
+                        {reportMode === "mid1" && (
+                          <>
+                            <th className="p-2.5 border-r-4 border-black">TEST 1 (/50)</th>
+                            <th className="p-2.5 border-r-4 border-black">MID 1 (/50)</th>
+                          </>
+                        )}
+                        {reportMode === "mid2" && (
+                          <>
+                            <th className="p-2.5 border-r-4 border-black">TEST 2 (/50)</th>
+                            <th className="p-2.5 border-r-4 border-black">MID 2 (/50)</th>
+                          </>
+                        )}
+                        {reportMode === "summation" && (
+                          <>
+                            <th className="p-2.5 border-r-2 border-black text-[10px]">T1 (/50)</th>
+                            <th className="p-2.5 border-r-2 border-black text-[10px]">M1 (/50)</th>
+                            <th className="p-2.5 border-r-2 border-black text-[10px]">T2 (/50)</th>
+                            <th className="p-2.5 border-r-4 border-black text-[10px]">M2 (/50)</th>
+                          </>
+                        )}
+                        <th className="p-2.5">TOTAL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subjectsList.map((sub) => {
+                        // Skip co-curricular here; handled distinctly at the bottom
+                        if (sub === "arts" || sub === "sports") return null;
+                        if (activeClass === "P6" && sub === "french") return null;
+
+                        const isFrenchP1P5 = sub === "french" && activeClass !== "P6";
+                        const baseMax = isFrenchP1P5 ? 25 : 50;
+
+                        const mData = studentMarks[sub] || {};
+                        const t1 = mData[`${selectedTerm}_t1`] ?? "-";
+                        const m1 = mData[`${selectedTerm}_m1`] ?? "-";
+                        const t2 = mData[`${selectedTerm}_t2`] ?? "-";
+                        const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
+                        const v1 = t1 !== "-" ? Number(t1) : 0;
+                        const v2 = m1 !== "-" ? Number(m1) : 0;
+                        const v3 = t2 !== "-" ? Number(t2) : 0;
+                        const v4 = m2 !== "-" ? Number(m2) : 0;
+
+                        let subTotal = 0;
+                        let subMax = 0;
+                        if (reportMode === "mid1") {
+                          subTotal = v1 + v2;
+                          subMax = baseMax * 2;
+                        } else if (reportMode === "mid2") {
+                          subTotal = v3 + v4;
+                          subMax = baseMax * 2;
+                        } else {
+                          subTotal = v1 + v2 + v3 + v4;
+                          subMax = baseMax * 2;
+                        }
+
+                        const hasMarks = t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-";
+
+                        return (
+                          <tr key={sub} className="border-b-2 border-black text-gray-900 text-[13px] font-black">
+                            <td className="p-2.5 py-3 border-r-4 border-black text-left font-black uppercase text-blue-950">{displaySubjectName(sub)}</td>
+                            {reportMode === "mid1" && (
+                              <>
+                                <td className="p-2.5 border-r-2 border-black text-gray-950">{t1}</td>
+                                <td className="p-2.5 border-r-4 border-black text-gray-950">{m1}</td>
+                              </>
+                            )}
+                            {reportMode === "mid2" && (
+                              <>
+                                <td className="p-2.5 border-r-2 border-black text-gray-950">{t2}</td>
+                                <td className="p-2.5 border-r-4 border-black text-gray-950">{m2}</td>
+                              </>
+                            )}
+                            {reportMode === "summation" && (
+                              <>
+                                <td className="p-2.5 border-r-2 border-black text-gray-950">{t1}</td>
+                                <td className="p-2.5 border-r-2 border-black text-gray-950">{m1}</td>
+                                <td className="p-2.5 border-r-2 border-black text-gray-950">{t2}</td>
+                                <td className="p-2.5 border-r-4 border-black text-gray-950">{m2}</td>
+                              </>
+                            )}
+                            <td className="p-2.5 font-black text-blue-900">
+                              {hasMarks ? `${subTotal} / ${subMax}` : "-"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* Hard-Copy Grade Summation Summary Footer Row */}
+                      <tr className="bg-blue-50/80 font-black text-blue-950 border-t-4 border-black text-xs tr-total">
+                        <td colSpan={reportMode === "summation" ? 2 : 1} className="p-3 border-r-4 border-black text-center uppercase tracking-wider text-[11px]">
+                          TOTAL SCORE: <span className="text-blue-900 text-sm block mt-0.5 font-serif">{student.totalAcquiredMarks} / {student.totalMaxPossible}</span>
+                        </td>
+                        <td colSpan={reportMode === "summation" ? 2 : 1} className="p-3 border-r-4 border-black text-center uppercase tracking-wider text-[11px]">
+                          PERCENTAGE: <span className="text-blue-900 text-sm block mt-0.5 font-serif">{student.percentage.toFixed(1)}%</span>
+                        </td>
+                        <td colSpan={2} className="p-3 text-center uppercase tracking-wider text-[11px]">
+                          POSITION: <span className="text-green-800 text-sm block mt-0.5 font-serif">{formatPosition(student.position)} OUT OF {students.length}</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  {/* Co-Curricular Extra Tracking Module */}
+                  <div className="grid grid-cols-2 gap-4 text-xs font-black bg-gray-50 p-2.5 rounded-xl border-2 border-black">
+                    <div className="flex justify-between items-center p-1">
+                      <span className="text-gray-500 uppercase text-[10px]">Creative Arts:</span>
+                      <span className="text-blue-900 font-serif text-[13px] font-black">
+                        {studentMarks["arts"]?.[`${selectedTerm}_exam`] !== undefined ? `${studentMarks["arts"]?.[`${selectedTerm}_exam`]} / 10` : "- / 10"}
+                      </span>
                     </div>
-                    <div className="border-t border-gray-300 pt-1.5">
-                      Head Teacher Stamp & Sign
+                    <div className="flex justify-between items-center p-1">
+                      <span className="text-gray-500 uppercase text-[10px]">Sports & P.E:</span>
+                      <span className="text-blue-900 font-serif text-[13px] font-black">
+                        {studentMarks["sports"]?.[`${selectedTerm}_exam`] !== undefined ? `${studentMarks["sports"]?.[`${selectedTerm}_exam`]} / 10` : "- / 10"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Comment Boxes Area */}
+                  <div className="space-y-1 text-left print-comment-area flex-grow">
+                    <span className="text-blue-950 font-black uppercase text-[11px] tracking-wider">Class Teacher's Comments & General Observations:</span>
+                    <div className="border-4 border-black rounded-xl p-4 bg-gray-50 font-black text-gray-900 text-[12px] italic tracking-wide leading-relaxed flex items-center print-comment-box min-h-[90px]">
+                      "{getAutomaticComment(student.percentage, student.totalMaxPossible)}"
+                    </div>
+                  </div>
+                </div>
+
+                {/* Teacher Details & Authorization (Clean alignment, no line under teacher name) */}
+                <div className="grid grid-cols-2 gap-8 pt-4 border-t-4 border-dashed border-gray-400 font-black items-end print-signatures mt-auto">
+                  <div className="space-y-0.5">
+                    <span className="text-gray-400 uppercase tracking-widest block text-[9px]">Class Teacher:</span>
+                    <div className="h-9 flex items-end pb-0.5 text-sm uppercase text-blue-900 tracking-wider font-black print-teacher-line">
+                      {classTeacherName || "_______________________"}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end space-y-0.5">
+                    <span className="text-gray-400 uppercase tracking-widest block text-[9px] text-right w-40">Official School Authority:</span>
+                    <div className="border-4 border-dashed border-gray-400 rounded-xl w-36 h-16 flex items-center justify-center bg-gray-50/50 text-[9px] uppercase tracking-wider text-gray-400 font-black print-stamp">
+                      School Stamp Only
                     </div>
                   </div>
                 </div>
@@ -322,5 +469,13 @@ export default function ReportCardsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ReportCardsPage() {
+  return (
+    <Suspense fallback={<div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest animate-pulse">Loading Report Hub Layout Matrix...</div>}>
+      <ReportCardsEngine />
+    </Suspense>
   );
 }

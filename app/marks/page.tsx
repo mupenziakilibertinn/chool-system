@@ -92,10 +92,10 @@ export default function TeacherMarksDashboard() {
   const handleCellBlur = async (studentId: string, subjectKey: string, assessmentKey: string, rawValue: string) => {
     const dbFieldKey = `${selectedTerm}_${assessmentKey}`;
     
-    // Limits: French = 25, Sports/Arts = 50 or 100 depending on school setup, Academic Subjects = 50
+    // Limits: French = 25, Sports/Arts = 50, Academic Subjects = 50, Final Exam = 100
     let maxLimit = 50;
     if (subjectKey === "French" && selectedClass !== "P6") maxLimit = 25;
-    if (assessmentKey === "exam") maxLimit = 100; // Final examination scaling
+    if (assessmentKey === "exam") maxLimit = 100; 
 
     let processedValue: any = rawValue.trim();
     if (processedValue === "") {
@@ -128,7 +128,7 @@ export default function TeacherMarksDashboard() {
       }));
     } catch (err) {
       console.error("Failed saving mark:", err);
-    } finaly {
+    } finally {
       setSavingStatus(null);
     }
   };
@@ -296,7 +296,6 @@ export default function TeacherMarksDashboard() {
                   const artsData = marks[student.id]?.["CreativeArts"] || {};
                   const sportsData = marks[student.id]?.["Sports"] || {};
 
-                  // Use general test component markers for co-curricular items
                   const artMark = artsData[`${selectedTerm}_t1`] === "-" ? "" : artsData[`${selectedTerm}_t1`] ?? "";
                   const sportMark = sportsData[`${selectedTerm}_t1`] === "-" ? "" : sportsData[`${selectedTerm}_t1`] ?? "";
 

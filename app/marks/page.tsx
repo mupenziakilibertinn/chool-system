@@ -1,282 +1,293 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { db } from "../../lib/firebase";
-import { collection, getDocs, doc, setDoc } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { db, auth } from "../../lib/firebase";
+import { collection, doc, getDocs, setDoc, query, where } from "firebase/firestore";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 
-// Course pathway mapping matching your reports setup
-const subjectsList = ["Mathematics", "Kinyarwanda", "English", "SET", "SRE", "French"];
+interface Student {
+  id: string;
+  name: string;
+  class: string;
+}
 
-export default function MarksEntryPage() {
-  const router = useRouter();
-  const [activeClass, setActiveClass] = useState("P6");
-  const [selectedTerm, setSelectedTerm] = useState("term1");
-  const [students, setStudents] = useState<any[]>([]);
-  const [marksMatrix, setMarksMatrix] = useState<any>({});
+export default function TeacherMarksDashboard() {
+  const [user, setUser] = useState<any>(null);
+  const [teacherData, setTeacherData] = useState<any>(null);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [marks, setMarks] = useState<Record<string, any>>({});
+  
+  // Selection states
+  const [selectedClass, setSelectedClass] = useState<string>("");
+  const [selectedSubject, setSelectedSubject] = useState<string>("");
+  const [selectedTerm, setSelectedTerm] = useState<string>("term1");
+  
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [savingStatus, setSavingStatus] = useState<string | null>(null);
+  const router = useRouter();
 
-  // Fetch students and their current marks matrix
+  // 1. Authenticate Teacher and check assignments
   useEffect(() => {
-    const fetchMarksData = async () => {
-      setLoading(true);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        router.push("/login");
+        return;
+      }
+      setUser(currentUser);
+
       try {
-        // Fetch all students registered in the system
-        const sSnap = await getDocs(collection(db, "students"));
-        const classFiltered = sSnap.docs
-          .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
-          .filter((s) => s.class?.toUpperCase() === activeClass.toUpperCase());
-
-        // Sort students alphabetically by name
-        classFiltered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setStudents(classFiltered);
-
-        // Build existing marks matrix from database layers
-        let initialMatrix: any = {};
-        await Promise.all(classFiltered.map(async (student) => {
-          const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
-          initialMatrix[student.id] = {};
-          mSnap.forEach((docSnap) => {
-            initialMatrix[student.id][docSnap.id] = docSnap.data();
-          });
-        }));
-        setMarksMatrix(initialMatrix);
+        const q = query(collection(db, "teachers"), where("email", "==", currentUser.email));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const data = snap.docs[0].data();
+          setTeacherData(data);
+          
+          // Auto-select the first assigned class and subject
+          if (data.classes && data.classes.length > 0) setSelectedClass(data.classes[0].toUpperCase());
+          if (data.subjects && data.subjects.length > 0) setSelectedSubject(data.subjects[0]);
+        }
       } catch (err) {
-        console.error("Failed to compile marks spreadsheet layer:", err);
+        console.error("Error verifying teacher assignment:", err);
       }
       setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [router]);
+
+  // 2. Fetch students and marks matrix for the selected class/subject
+  useEffect(() => {
+    if (!selectedClass || !selectedSubject) return;
+
+    const fetchData = async () => {
+      try {
+        // Fetch students belonging to the class
+        const sSnap = await getDocs(collection(db, "students"));
+        const sList = sSnap.docs
+          .map(d => ({ id: d.id, ...(d.data() as any) } as Student))
+          .filter(s => s.class?.toUpperCase() === selectedClass.toUpperCase());
+        
+        sList.sort((a, b) => a.name.localeCompare(b.name));
+        setStudents(sList);
+
+        // Fetch marks for the selected subject only
+        const mMatrix: Record<string, any> = {};
+        await Promise.all(sList.map(async (student) => {
+          const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
+          mMatrix[student.id] = {};
+          mSnap.forEach(docSnap => {
+            if (docSnap.id === selectedSubject) {
+              mMatrix[student.id] = docSnap.data();
+            }
+          });
+        }));
+        setMarks(mMatrix);
+      } catch (err) {
+        console.error("Error fetching data:", err);
+      }
     };
 
-    fetchMarksData();
-  }, [activeClass]);
+    fetchData();
+  }, [selectedClass, selectedSubject]);
 
-  // Handle cell entry updates cleanly within the local matrix state
-  const handleInputChange = (studentId: string, subject: string, fieldKey: string, value: string) => {
-    setSaveSuccess(false);
-    setMarksMatrix((prev: any) => {
-      const studentData = prev[studentId] || {};
-      const subjectData = studentData[subject] || {};
+  // 3. Save a cell directly to Firestore when the teacher clicks away (onBlur)
+  const handleCellBlur = async (studentId: string, assessmentKey: string, rawValue: string) => {
+    // Standardized cloud schema: e.g., term1_t1, term1_m1, term1_t2, term1_m2
+    const dbFieldKey = `${selectedTerm}_${assessmentKey}`;
+    
+    // Determine subject maximum based on stream limits (French exception)
+    const isFrenchP1P5 = selectedSubject === "French" && selectedClass !== "P6";
+    const maxLimit = isFrenchP1P5 ? 25 : 50;
+
+    let processedValue: any = rawValue.trim();
+    if (processedValue === "") {
+      processedValue = "-";
+    } else {
+      const parsed = Number(processedValue);
+      if (isNaN(parsed) || parsed < 0 || parsed > maxLimit) {
+        alert(`Please enter a valid mark between 0 and ${maxLimit}, or leave it blank.`);
+        return;
+      }
+      processedValue = parsed;
+    }
+
+    setSavingStatus(`${studentId}-${assessmentKey}`);
+
+    try {
+      const docRef = doc(db, "students", studentId, "marks", selectedSubject);
+      await setDoc(docRef, { [dbFieldKey]: processedValue }, { merge: true });
       
-      return {
+      // Keep local state in sync
+      setMarks(prev => ({
         ...prev,
         [studentId]: {
-          ...studentData,
-          [subject]: {
-            ...subjectData,
-            [`${selectedTerm}_${fieldKey}`]: value === "" ? "-" : value
-          }
+          ...prev[studentId],
+          [dbFieldKey]: processedValue
         }
-      };
-    });
-  };
-
-  // Persist local state updates to Firebase cloud collections
-  const handleSaveChanges = async () => {
-    setSaving(true);
-    setSaveSuccess(false);
-    try {
-      await Promise.all(
-        students.map(async (student) => {
-          const studentData = marksMatrix[student.id] || {};
-          
-          // Loop through active pathways to update records
-          for (const sub of subjectsList) {
-            if (activeClass === "P6" && sub === "French") continue;
-            
-            const subData = studentData[sub] || {};
-            const docRef = doc(db, "students", student.id, "marks", sub);
-            
-            // Save keeping existing fields for other terms untouched
-            await setDoc(docRef, subData, { merge: true });
-          }
-        })
-      );
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 4000);
+      }));
     } catch (err) {
-      console.error("Cloud document sync failed:", err);
-      alert("Error saving marks. Please verify network links or config states.");
+      console.error("Failed saving mark:", err);
+    } finally {
+      setSavingStatus(null);
     }
-    setSaving(false);
   };
 
-  if (loading) {
-    return (
-      <div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">
-        Loading Class Marks Spreadsheet Grid...
-      </div>
-    );
-  }
+  if (loading) return <div className="p-10 text-center font-black text-blue-900 tracking-widest text-xs">VERIFYING TEACHER PROFILE...</div>;
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-xs pb-20">
-      {/* Dynamic Top Navigation Panel */}
+      {/* Navigation Top Bar */}
       <div className="bg-white border-b-2 p-4 shadow-sm">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex flex-wrap gap-4 items-center">
             <div>
-              <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Active Target Class</label>
-              <select 
-                value={activeClass} 
-                onChange={(e) => setActiveClass(e.target.value.toUpperCase())} 
-                className="p-2 border-2 rounded-xl font-black bg-white text-xs text-blue-900 uppercase"
-              >
-                <option value="P1">Primary 1 (P1)</option>
-                <option value="P2">Primary 2 (P2)</option>
-                <option value="P3">Primary 3 (P3)</option>
-                <option value="P4">Primary 4 (P4)</option>
-                <option value="P5">Primary 5 (P5)</option>
-                <option value="P6">Primary 6 (P6)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Target Academic Term</label>
-              <select 
-                value={selectedTerm} 
-                onChange={(e) => setSelectedTerm(e.target.value)} 
-                className="p-2 border-2 rounded-xl font-black bg-white text-xs"
-              >
+              <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Academic Term</label>
+              <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="p-2 border-2 rounded-xl font-black bg-white text-xs">
                 <option value="term1">Term 1</option>
                 <option value="term2">Term 2</option>
                 <option value="term3">Term 3</option>
               </select>
             </div>
+            
+            {teacherData?.classes && (
+              <div>
+                <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Your Assigned Classes</label>
+                <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value.toUpperCase())} className="p-2 border-2 rounded-xl font-black bg-white text-xs text-blue-900 uppercase">
+                  {teacherData.classes.map((c: string) => <option key={c} value={c.toUpperCase()}>{c.toUpperCase()}</option>)}
+                </select>
+              </div>
+            )}
+
+            {teacherData?.subjects && (
+              <div>
+                <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Your Assigned Subjects</label>
+                <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)} className="p-2 border-2 rounded-xl font-black bg-white text-xs text-blue-900">
+                  {teacherData.subjects.map((s: string) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => router.push(`/reports?class=${activeClass.toLowerCase()}`)}
-              className="bg-blue-900 hover:bg-blue-950 text-white font-black text-xs uppercase px-4 py-3 rounded-xl transition-all"
+              onClick={() => router.push(`/reports?class=${selectedClass.toLowerCase()}`)}
+              className="bg-blue-900 hover:bg-blue-950 text-white font-black text-xs uppercase px-5 py-3 rounded-xl transition-all shadow"
             >
-              View Report Hub 📋
+              Observe My Class Reports 📋
             </button>
-            <button
-              onClick={handleSaveChanges}
-              disabled={saving}
-              className={`${
-                saveSuccess ? "bg-green-600" : "bg-green-700 hover:bg-green-800"
-              } text-white font-black text-xs uppercase px-6 py-3 rounded-xl shadow transition-all flex items-center gap-2`}
-            >
-              {saving ? "Syncing Cloud Records..." : saveSuccess ? "Marks Saved Successfully!  ✔" : "Save Changes to Database  💾"}
+            <button onClick={() => signOut(auth)} className="bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase px-4 py-3 rounded-xl transition-all">
+              Log Out
             </button>
           </div>
         </div>
       </div>
 
-      {/* Main Grid Workspace */}
-      <div className="max-w-7xl mx-auto p-4 mt-6">
-        {students.length === 0 ? (
-          <div className="text-center font-black p-10 bg-white border-4 border-black rounded-xl text-gray-400 uppercase">
-            No registered students located for Class {activeClass}
-          </div>
-        ) : (
-          <div className="bg-white border-4 border-black rounded-xl p-4 shadow-md overflow-x-auto">
-            <h1 className="text-sm font-black text-blue-900 uppercase tracking-wider mb-4 border-b-2 pb-2">
-              NEW GENERATION SCHOOL — CLASS {activeClass} SPREADSHEET LEDGER ({selectedTerm.toUpperCase()})
+      {/* Main Grading Ledger Table */}
+      <div className="max-w-6xl mx-auto p-4 mt-6">
+        <div className="bg-white border-4 border-black rounded-xl p-6 shadow-md">
+          <div className="border-b-2 pb-2 mb-4 flex justify-between items-center">
+            <h1 className="text-sm font-black text-blue-900 uppercase tracking-wider">
+              NEW GENERATION SCHOOL — {selectedClass} GRADING MATRIX FOR {selectedSubject.toUpperCase()}
             </h1>
-            
-            <table className="w-full text-center border-collapse border-2 border-black text-xs font-black">
-              <thead>
-                <tr className="bg-gray-100 border-b-2 border-black uppercase text-[10px] tracking-wider">
-                  <th className="p-2 border-r-2 border-black text-left sticky left-0 bg-gray-100 z-10 min-w-[180px]">Student Name</th>
-                  {subjectsList.map((sub) => {
-                    if (activeClass === "P6" && sub === "French") return null;
-                    const maxLabel = (sub === "French") ? "/25" : "/50";
-                    return (
-                      <th key={sub} className="p-2 border-r-2 border-black min-w-[140px]" colSpan={4}>
-                        {sub.toUpperCase()} ({maxLabel})
-                      </th>
-                    );
-                  })}
-                </tr>
-                <tr className="bg-gray-50 border-b-2 border-black uppercase text-[8px] tracking-tight">
-                  <th className="p-1 border-r-2 border-black text-left sticky left-0 bg-gray-50 z-10">Matrix Index</th>
-                  {subjectsList.map((sub) => {
-                    if (activeClass === "P6" && sub === "French") return null;
-                    return (
-                      <g key={`${sub}-subheaders`}>
-                        <th className="p-1 border-r bg-blue-50/50">T1</th>
-                        <th className="p-1 border-r bg-blue-50/50">M1</th>
-                        <th className="p-1 border-r bg-green-50/50">T2</th>
-                        <th className="p-1 border-r-2 border-black bg-green-50/50">M2</th>
-                      </g>
-                    );
-                  })}
+            <span className="text-[10px] font-black bg-blue-50 text-blue-900 px-3 py-1 rounded-full uppercase">
+              Active Focus: {selectedTerm.toUpperCase()}
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-center border-collapse border-4 border-black text-sm font-black">
+              <thead className="bg-gray-100 border-b-4 border-black uppercase text-[10px] tracking-wider">
+                <tr>
+                  <th className="p-3 border-r-4 border-black text-left w-[40%]">Student Name</th>
+                  <th className="p-3 border-r-2 border-black bg-blue-50/40">Test 1</th>
+                  <th className="p-3 border-r-4 border-black bg-blue-50/40">Mid-Term 1</th>
+                  <th className="p-3 border-r-2 border-black bg-green-50/40">Test 2</th>
+                  <th className="p-3 bg-green-50/40">Mid-Term 2</th>
                 </tr>
               </thead>
               <tbody>
-                {students.map((student, sIdx) => {
-                  const studentData = marksMatrix[student.id] || {};
+                {students.map((student, index) => {
+                  const studentRecord = marks[student.id] || {};
+                  
+                  // Retrieve values safely using the exact state namespace strings
+                  const t1 = studentRecord[`${selectedTerm}_t1`] === "-" ? "" : studentRecord[`${selectedTerm}_t1`] ?? "";
+                  const m1 = studentRecord[`${selectedTerm}_m1`] === "-" ? "" : studentRecord[`${selectedTerm}_m1`] ?? "";
+                  const t2 = studentRecord[`${selectedTerm}_t2`] === "-" ? "" : studentRecord[`${selectedTerm}_t2`] ?? "";
+                  const m2 = studentRecord[`${selectedTerm}_m2`] === "-" ? "" : studentRecord[`${selectedTerm}_m2`] ?? "";
+
                   return (
-                    <tr key={student.id} className="border-b border-black hover:bg-gray-50 text-gray-900">
-                      {/* Fixed Name Column */}
-                      <td className="p-2 border-r-2 border-black text-left font-black uppercase text-blue-950 sticky left-0 bg-white group-hover:bg-gray-50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                        {sIdx + 1}. {student.name}
+                    <tr key={student.id} className="border-b-2 border-black text-gray-900 text-[13px] font-black hover:bg-gray-50/60 transition-all">
+                      <td className="p-3 border-r-4 border-black text-left font-black uppercase text-blue-950">
+                        {index + 1}. {student.name}
                       </td>
                       
-                      {/* Pathway Input Loop */}
-                      {subjectsList.map((sub) => {
-                        if (activeClass === "P6" && sub === "French") return null;
-                        
-                        const subData = studentData[sub] || {};
-                        const t1 = subData[`${selectedTerm}_t1`] === "-" ? "" : subData[`${selectedTerm}_t1`] ?? "";
-                        const m1 = subData[`${selectedTerm}_m1`] === "-" ? "" : subData[`${selectedTerm}_m1`] ?? "";
-                        const t2 = subData[`${selectedTerm}_t2`] === "-" ? "" : subData[`${selectedTerm}_t2`] ?? "";
-                        const m2 = subData[`${selectedTerm}_m2`] === "-" ? "" : subData[`${selectedTerm}_m2`] ?? "";
+                      {/* Test 1 */}
+                      <td className="p-2 border-r-2 border-black bg-blue-50/10 text-center">
+                        <input
+                          type="text"
+                          defaultValue={t1}
+                          placeholder="-"
+                          onBlur={(e) => handleCellBlur(student.id, "t1", e.target.value)}
+                          className="w-20 p-1 text-center font-bold font-serif bg-transparent border border-gray-300 rounded focus:border-blue-900 focus:bg-white outline-none"
+                        />
+                        <div className="text-[9px] text-gray-400 font-sans mt-0.5">
+                          {savingStatus === `${student.id}-t1` ? "Saving..." : ""}
+                        </div>
+                      </td>
 
-                        return (
-                          <g key={`${student.id}-${sub}`}>
-                            {/* Term 1 Components */}
-                            <td className="p-1 border-r bg-blue-50/20">
-                              <input
-                                type="text"
-                                value={t1}
-                                placeholder="-"
-                                onChange={(e) => handleInputChange(student.id, sub, "t1", e.target.value)}
-                                className="w-full text-center bg-transparent border-0 font-bold font-serif focus:ring-1 focus:ring-blue-900 rounded"
-                              />
-                            </td>
-                            <td className="p-1 border-r bg-blue-50/20">
-                              <input
-                                type="text"
-                                value={m1}
-                                placeholder="-"
-                                onChange={(e) => handleInputChange(student.id, sub, "m1", e.target.value)}
-                                className="w-full text-center bg-transparent border-0 font-bold font-serif focus:ring-1 focus:ring-blue-900 rounded"
-                              />
-                            </td>
-                            
-                            {/* Term 2 Components */}
-                            <td className="p-1 border-r bg-green-50/20">
-                              <input
-                                type="text"
-                                value={t2}
-                                placeholder="-"
-                                onChange={(e) => handleInputChange(student.id, sub, "t2", e.target.value)}
-                                className="w-full text-center bg-transparent border-0 font-bold font-serif focus:ring-1 focus:ring-green-800 rounded"
-                              />
-                            </td>
-                            <td className="p-1 border-r-2 border-black bg-green-50/20">
-                              <input
-                                type="text"
-                                value={m2}
-                                placeholder="-"
-                                onChange={(e) => handleInputChange(student.id, sub, "m2", e.target.value)}
-                                className="w-full text-center bg-transparent border-0 font-bold font-serif focus:ring-1 focus:ring-green-800 rounded"
-                              />
-                            </td>
-                          </g>
-                        );
-                      })}
+                      {/* Mid 1 */}
+                      <td className="p-2 border-r-4 border-black bg-blue-50/10 text-center">
+                        <input
+                          type="text"
+                          defaultValue={m1}
+                          placeholder="-"
+                          onBlur={(e) => handleCellBlur(student.id, "m1", e.target.value)}
+                          className="w-20 p-1 text-center font-bold font-serif bg-transparent border border-gray-300 rounded focus:border-blue-900 focus:bg-white outline-none"
+                        />
+                        <div className="text-[9px] text-gray-400 font-sans mt-0.5">
+                          {savingStatus === `${student.id}-m1` ? "Saving..." : ""}
+                        </div>
+                      </td>
+
+                      {/* Test 2 */}
+                      <td className="p-2 border-r-2 border-black bg-green-50/10 text-center">
+                        <input
+                          type="text"
+                          defaultValue={t2}
+                          placeholder="-"
+                          onBlur={(e) => handleCellBlur(student.id, "t2", e.target.value)}
+                          className="w-20 p-1 text-center font-bold font-serif bg-transparent border border-gray-300 rounded focus:border-green-800 focus:bg-white outline-none"
+                        />
+                        <div className="text-[9px] text-gray-400 font-sans mt-0.5">
+                          {savingStatus === `${student.id}-t2` ? "Saving..." : ""}
+                        </div>
+                      </td>
+
+                      {/* Mid 2 */}
+                      <td className="p-2 bg-green-50/10 text-center">
+                        <input
+                          type="text"
+                          defaultValue={m2}
+                          placeholder="-"
+                          onBlur={(e) => handleCellBlur(student.id, "m2", e.target.value)}
+                          className="w-20 p-1 text-center font-bold font-serif bg-transparent border border-gray-300 rounded focus:border-green-800 focus:bg-white outline-none"
+                        />
+                        <div className="text-[9px] text-gray-400 font-sans mt-0.5">
+                          {savingStatus === `${student.id}-m2` ? "Saving..." : ""}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-        )}
+          {students.length === 0 && (
+            <div className="text-center font-black py-8 text-gray-400 uppercase">
+              No registered students located for Class Stream {selectedClass}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

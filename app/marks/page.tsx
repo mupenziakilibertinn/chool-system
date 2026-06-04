@@ -70,15 +70,13 @@ export default function TeacherMarksDashboard() {
         sList.sort((a, b) => a.name.localeCompare(b.name));
         setStudents(sList);
 
-        // Fetch marks for the selected subject only
+        // Fetch marks for the selected subject and sports/arts documents
         const mMatrix: Record<string, any> = {};
         await Promise.all(sList.map(async (student) => {
           const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
           mMatrix[student.id] = {};
           mSnap.forEach(docSnap => {
-            if (docSnap.id === selectedSubject) {
-              mMatrix[student.id] = docSnap.data();
-            }
+            mMatrix[student.id][docSnap.id] = docSnap.data();
           });
         }));
         setMarks(mMatrix);
@@ -90,14 +88,14 @@ export default function TeacherMarksDashboard() {
     fetchData();
   }, [selectedClass, selectedSubject]);
 
-  // 3. Save a cell directly to Firestore when the teacher clicks away (onBlur)
-  const handleCellBlur = async (studentId: string, assessmentKey: string, rawValue: string) => {
-    // Standardized cloud schema: e.g., term1_t1, term1_m1, term1_t2, term1_m2
+  // 3. Save a cell directly to Firestore (onBlur)
+  const handleCellBlur = async (studentId: string, subjectKey: string, assessmentKey: string, rawValue: string) => {
     const dbFieldKey = `${selectedTerm}_${assessmentKey}`;
     
-    // Determine subject maximum based on stream limits (French exception)
-    const isFrenchP1P5 = selectedSubject === "French" && selectedClass !== "P6";
-    const maxLimit = isFrenchP1P5 ? 25 : 50;
+    // Limits: French = 25, Sports/Arts = 50 or 100 depending on school setup, Academic Subjects = 50
+    let maxLimit = 50;
+    if (subjectKey === "French" && selectedClass !== "P6") maxLimit = 25;
+    if (assessmentKey === "exam") maxLimit = 100; // Final examination scaling
 
     let processedValue: any = rawValue.trim();
     if (processedValue === "") {
@@ -105,16 +103,16 @@ export default function TeacherMarksDashboard() {
     } else {
       const parsed = Number(processedValue);
       if (isNaN(parsed) || parsed < 0 || parsed > maxLimit) {
-        alert(`Please enter a valid mark between 0 and ${maxLimit}, or leave it blank.`);
+        alert(`Please enter a valid mark between 0 and ${maxLimit}, or leave blank.`);
         return;
       }
       processedValue = parsed;
     }
 
-    setSavingStatus(`${studentId}-${assessmentKey}`);
+    setSavingStatus(`${studentId}-${subjectKey}-${assessmentKey}`);
 
     try {
-      const docRef = doc(db, "students", studentId, "marks", selectedSubject);
+      const docRef = doc(db, "students", studentId, "marks", subjectKey);
       await setDoc(docRef, { [dbFieldKey]: processedValue }, { merge: true });
       
       // Keep local state in sync
@@ -122,12 +120,15 @@ export default function TeacherMarksDashboard() {
         ...prev,
         [studentId]: {
           ...prev[studentId],
-          [dbFieldKey]: processedValue
+          [subjectKey]: {
+            ...(prev[studentId]?.[subjectKey] || {}),
+            [dbFieldKey]: processedValue
+          }
         }
       }));
     } catch (err) {
       console.error("Failed saving mark:", err);
-    } finally {
+    } finaly {
       setSavingStatus(null);
     }
   };
@@ -136,7 +137,18 @@ export default function TeacherMarksDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-xs pb-20">
-      {/* Navigation Top Bar */}
+      
+      {/* Top Banner with Teacher's Name */}
+      <div className="bg-blue-900 text-white px-6 py-2 flex justify-between items-center font-black uppercase tracking-wider">
+        <div>
+          Teacher Dashboard: <span className="text-yellow-400">{teacherData?.name || "Mupenzi Akili Bertin"}</span>
+        </div>
+        <div className="text-[10px] text-blue-200">
+          New Generation School Portal
+        </div>
+      </div>
+
+      {/* Navigation Top Bar Controls */}
       <div className="bg-white border-b-2 p-4 shadow-sm">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex flex-wrap gap-4 items-center">
@@ -182,15 +194,17 @@ export default function TeacherMarksDashboard() {
         </div>
       </div>
 
-      {/* Main Grading Ledger Table */}
-      <div className="max-w-6xl mx-auto p-4 mt-6">
+      {/* Main Work Area */}
+      <div className="max-w-7xl mx-auto p-4 mt-6 space-y-8">
+        
+        {/* SECTION 1: MAIN SUBJECT MARKS MATRIX */}
         <div className="bg-white border-4 border-black rounded-xl p-6 shadow-md">
           <div className="border-b-2 pb-2 mb-4 flex justify-between items-center">
             <h1 className="text-sm font-black text-blue-900 uppercase tracking-wider">
-              NEW GENERATION SCHOOL — {selectedClass} GRADING MATRIX FOR {selectedSubject.toUpperCase()}
+              1. ACADEMIC MARKS FOR {selectedSubject.toUpperCase()} ({selectedClass})
             </h1>
             <span className="text-[10px] font-black bg-blue-50 text-blue-900 px-3 py-1 rounded-full uppercase">
-              Active Focus: {selectedTerm.toUpperCase()}
+              {selectedTerm.toUpperCase()}
             </span>
           </div>
 
@@ -198,83 +212,58 @@ export default function TeacherMarksDashboard() {
             <table className="w-full text-center border-collapse border-4 border-black text-sm font-black">
               <thead className="bg-gray-100 border-b-4 border-black uppercase text-[10px] tracking-wider">
                 <tr>
-                  <th className="p-3 border-r-4 border-black text-left w-[40%]">Student Name</th>
-                  <th className="p-3 border-r-2 border-black bg-blue-50/40">Test 1</th>
-                  <th className="p-3 border-r-4 border-black bg-blue-50/40">Mid-Term 1</th>
-                  <th className="p-3 border-r-2 border-black bg-green-50/40">Test 2</th>
-                  <th className="p-3 bg-green-50/40">Mid-Term 2</th>
+                  <th className="p-3 border-r-4 border-black text-left w-[30%]">Student Name</th>
+                  <th className="p-3 border-r-2 border-black bg-blue-50/40">Test 1 (/50)</th>
+                  <th className="p-3 border-r-2 border-black bg-blue-50/40">Mid-Term 1 (/50)</th>
+                  <th className="p-3 border-r-2 border-black bg-green-50/40">Test 2 (/50)</th>
+                  <th className="p-3 border-r-4 border-black bg-green-50/40">Mid-Term 2 (/50)</th>
+                  <th className="p-3 bg-yellow-50/50 text-blue-900">Final Exam (/100)</th>
                 </tr>
               </thead>
               <tbody>
                 {students.map((student, index) => {
-                  const studentRecord = marks[student.id] || {};
+                  const subjectData = marks[student.id]?.[selectedSubject] || {};
                   
-                  // Retrieve values safely using the exact state namespace strings
-                  const t1 = studentRecord[`${selectedTerm}_t1`] === "-" ? "" : studentRecord[`${selectedTerm}_t1`] ?? "";
-                  const m1 = studentRecord[`${selectedTerm}_m1`] === "-" ? "" : studentRecord[`${selectedTerm}_m1`] ?? "";
-                  const t2 = studentRecord[`${selectedTerm}_t2`] === "-" ? "" : studentRecord[`${selectedTerm}_t2`] ?? "";
-                  const m2 = studentRecord[`${selectedTerm}_m2`] === "-" ? "" : studentRecord[`${selectedTerm}_m2`] ?? "";
+                  const t1 = subjectData[`${selectedTerm}_t1`] === "-" ? "" : subjectData[`${selectedTerm}_t1`] ?? "";
+                  const m1 = subjectData[`${selectedTerm}_m1`] === "-" ? "" : subjectData[`${selectedTerm}_m1`] ?? "";
+                  const t2 = subjectData[`${selectedTerm}_t2`] === "-" ? "" : subjectData[`${selectedTerm}_t2`] ?? "";
+                  const m2 = subjectData[`${selectedTerm}_m2`] === "-" ? "" : subjectData[`${selectedTerm}_m2`] ?? "";
+                  const exam = subjectData[`${selectedTerm}_exam`] === "-" ? "" : subjectData[`${selectedTerm}_exam`] ?? "";
 
                   return (
                     <tr key={student.id} className="border-b-2 border-black text-gray-900 text-[13px] font-black hover:bg-gray-50/60 transition-all">
-                      <td className="p-3 border-r-4 border-black text-left font-black uppercase text-blue-950">
+                      <td className="p-3 border-r-4 border-black text-left uppercase text-blue-950">
                         {index + 1}. {student.name}
                       </td>
                       
                       {/* Test 1 */}
-                      <td className="p-2 border-r-2 border-black bg-blue-50/10 text-center">
-                        <input
-                          type="text"
-                          defaultValue={t1}
-                          placeholder="-"
-                          onBlur={(e) => handleCellBlur(student.id, "t1", e.target.value)}
-                          className="w-20 p-1 text-center font-bold font-serif bg-transparent border border-gray-300 rounded focus:border-blue-900 focus:bg-white outline-none"
-                        />
-                        <div className="text-[9px] text-gray-400 font-sans mt-0.5">
-                          {savingStatus === `${student.id}-t1` ? "Saving..." : ""}
-                        </div>
+                      <td className="p-2 border-r-2 border-black text-center">
+                        <input type="text" defaultValue={t1} placeholder="-" onBlur={(e) => handleCellBlur(student.id, selectedSubject, "t1", e.target.value)} className="w-16 p-1 text-center font-bold font-serif border border-gray-300 rounded focus:border-blue-900 outline-none" />
+                        <div className="text-[8px] text-gray-400 font-sans">{savingStatus === `${student.id}-${selectedSubject}-t1` ? "Saving..." : ""}</div>
                       </td>
 
                       {/* Mid 1 */}
-                      <td className="p-2 border-r-4 border-black bg-blue-50/10 text-center">
-                        <input
-                          type="text"
-                          defaultValue={m1}
-                          placeholder="-"
-                          onBlur={(e) => handleCellBlur(student.id, "m1", e.target.value)}
-                          className="w-20 p-1 text-center font-bold font-serif bg-transparent border border-gray-300 rounded focus:border-blue-900 focus:bg-white outline-none"
-                        />
-                        <div className="text-[9px] text-gray-400 font-sans mt-0.5">
-                          {savingStatus === `${student.id}-m1` ? "Saving..." : ""}
-                        </div>
+                      <td className="p-2 border-r-2 border-black text-center">
+                        <input type="text" defaultValue={m1} placeholder="-" onBlur={(e) => handleCellBlur(student.id, selectedSubject, "m1", e.target.value)} className="w-16 p-1 text-center font-bold font-serif border border-gray-300 rounded focus:border-blue-900 outline-none" />
+                        <div className="text-[8px] text-gray-400 font-sans">{savingStatus === `${student.id}-${selectedSubject}-m1` ? "Saving..." : ""}</div>
                       </td>
 
                       {/* Test 2 */}
-                      <td className="p-2 border-r-2 border-black bg-green-50/10 text-center">
-                        <input
-                          type="text"
-                          defaultValue={t2}
-                          placeholder="-"
-                          onBlur={(e) => handleCellBlur(student.id, "t2", e.target.value)}
-                          className="w-20 p-1 text-center font-bold font-serif bg-transparent border border-gray-300 rounded focus:border-green-800 focus:bg-white outline-none"
-                        />
-                        <div className="text-[9px] text-gray-400 font-sans mt-0.5">
-                          {savingStatus === `${student.id}-t2` ? "Saving..." : ""}
-                        </div>
+                      <td className="p-2 border-r-2 border-black text-center">
+                        <input type="text" defaultValue={t2} placeholder="-" onBlur={(e) => handleCellBlur(student.id, selectedSubject, "t2", e.target.value)} className="w-16 p-1 text-center font-bold font-serif border border-gray-300 rounded focus:border-green-800 outline-none" />
+                        <div className="text-[8px] text-gray-400 font-sans">{savingStatus === `${student.id}-${selectedSubject}-t2` ? "Saving..." : ""}</div>
                       </td>
 
                       {/* Mid 2 */}
-                      <td className="p-2 bg-green-50/10 text-center">
-                        <input
-                          type="text"
-                          defaultValue={m2}
-                          placeholder="-"
-                          onBlur={(e) => handleCellBlur(student.id, "m2", e.target.value)}
-                          className="w-20 p-1 text-center font-bold font-serif bg-transparent border border-gray-300 rounded focus:border-green-800 focus:bg-white outline-none"
-                        />
-                        <div className="text-[9px] text-gray-400 font-sans mt-0.5">
-                          {savingStatus === `${student.id}-m2` ? "Saving..." : ""}
-                        </div>
+                      <td className="p-2 border-r-4 border-black text-center">
+                        <input type="text" defaultValue={m2} placeholder="-" onBlur={(e) => handleCellBlur(student.id, selectedSubject, "m2", e.target.value)} className="w-16 p-1 text-center font-bold font-serif border border-gray-300 rounded focus:border-green-800 outline-none" />
+                        <div className="text-[8px] text-gray-400 font-sans">{savingStatus === `${student.id}-${selectedSubject}-m2` ? "Saving..." : ""}</div>
+                      </td>
+
+                      {/* Final Exam Column */}
+                      <td className="p-2 bg-yellow-50/20 text-center">
+                        <input type="text" defaultValue={exam} placeholder="-" onBlur={(e) => handleCellBlur(student.id, selectedSubject, "exam", e.target.value)} className="w-20 p-1 text-center font-bold font-serif border-2 border-yellow-600 rounded bg-white focus:ring-2 focus:ring-yellow-600 outline-none" />
+                        <div className="text-[8px] text-yellow-600 font-sans">{savingStatus === `${student.id}-${selectedSubject}-exam` ? "Saving..." : ""}</div>
                       </td>
                     </tr>
                   );
@@ -282,12 +271,60 @@ export default function TeacherMarksDashboard() {
               </tbody>
             </table>
           </div>
-          {students.length === 0 && (
-            <div className="text-center font-black py-8 text-gray-400 uppercase">
-              No registered students located for Class Stream {selectedClass}
-            </div>
-          )}
         </div>
+
+        {/* SECTION 2: SPORTS, CO-CURRICULAR & CREATIVE ARTS LEDGER */}
+        <div className="bg-white border-4 border-black rounded-xl p-6 shadow-md">
+          <div className="border-b-2 pb-2 mb-4">
+            <h1 className="text-sm font-black text-green-800 uppercase tracking-wider">
+              2. SPORTS & CREATIVE ARTS ASSESSMENT GRADES
+            </h1>
+            <p className="text-[10px] text-gray-400 font-bold lowercase mt-0.5">Grades update directly into report card co-curricular rows.</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-center border-collapse border-4 border-black text-sm font-black">
+              <thead className="bg-gray-100 border-b-4 border-black uppercase text-[10px] tracking-wider">
+                <tr>
+                  <th className="p-3 border-r-4 border-black text-left w-[30%]">Student Name</th>
+                  <th className="p-3 border-r-4 border-black bg-purple-50 text-purple-900">Creative Arts (/50)</th>
+                  <th className="p-3 bg-orange-50 text-orange-900">Physical Education & Sports (/50)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {students.map((student, index) => {
+                  const artsData = marks[student.id]?.["CreativeArts"] || {};
+                  const sportsData = marks[student.id]?.["Sports"] || {};
+
+                  // Use general test component markers for co-curricular items
+                  const artMark = artsData[`${selectedTerm}_t1`] === "-" ? "" : artsData[`${selectedTerm}_t1`] ?? "";
+                  const sportMark = sportsData[`${selectedTerm}_t1`] === "-" ? "" : sportsData[`${selectedTerm}_t1`] ?? "";
+
+                  return (
+                    <tr key={`co-${student.id}`} className="border-b-2 border-black text-gray-900 text-[13px] font-black hover:bg-gray-50/60 transition-all">
+                      <td className="p-3 border-r-4 border-black text-left uppercase text-gray-700">
+                        {index + 1}. {student.name}
+                      </td>
+
+                      {/* Creative Arts Field */}
+                      <td className="p-2 border-r-4 border-black bg-purple-50/10 text-center">
+                        <input type="text" defaultValue={artMark} placeholder="-" onBlur={(e) => handleCellBlur(student.id, "CreativeArts", "t1", e.target.value)} className="w-24 p-1 text-center font-bold font-serif border border-purple-300 rounded focus:border-purple-800 outline-none" />
+                        <div className="text-[8px] text-purple-600 font-sans">{savingStatus === `${student.id}-CreativeArts-t1` ? "Saving..." : ""}</div>
+                      </td>
+
+                      {/* Sports Field */}
+                      <td className="p-2 bg-orange-50/10 text-center">
+                        <input type="text" defaultValue={sportMark} placeholder="-" onBlur={(e) => handleCellBlur(student.id, "Sports", "t1", e.target.value)} className="w-24 p-1 text-center font-bold font-serif border border-orange-300 rounded focus:border-orange-800 outline-none" />
+                        <div className="text-[8px] text-orange-600 font-sans">{savingStatus === `${student.id}-Sports-t1` ? "Saving..." : ""}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </div>
   );

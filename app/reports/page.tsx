@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { db } from "../../lib/firebase";
@@ -9,7 +10,7 @@ type ReportMode = "mid1" | "mid2" | "summation";
 
 function ReportCardsEngine() {
   const searchParams = useSearchParams();
-
+  
   const urlClass = searchParams.get("class");
   const urlStudentId = searchParams.get("studentId");
   const activeClass = urlClass ? urlClass.toUpperCase() : "P6";
@@ -224,7 +225,7 @@ function ReportCardsEngine() {
         @media print {
           @page {
             size: A4 portrait;
-            margin: 12mm 8mm 6mm 8mm; /* Increased top margin from 6mm to 12mm to push the top border down */
+            margin: 6mm 8mm 6mm 8mm;
           }
           body {
             background: white !important;
@@ -237,8 +238,8 @@ function ReportCardsEngine() {
             margin: 0 auto !important;
             box-shadow: none !important;
             width: 100% !important;
-            max-height: 278mm !important; /* Adjusted slightly to account for the larger top margin layout */
-            height: 278mm !important;
+            max-height: 284mm !important;
+            height: 284mm !important;
             page-break-after: always !important;
             page-break-inside: avoid !important;
             display: flex !important;
@@ -331,7 +332,7 @@ function ReportCardsEngine() {
                     onClick={() => handlePrintSingle(student.id)}
                     className="bg-blue-900 text-white font-black px-3 py-1.5 rounded-md uppercase text-[10px]"
                   >
-                    Print Only This Card   🖨️
+                    Print Only This Card   🖨
                   </button>
                   {activeStudentId !== null && (
                     <button
@@ -395,6 +396,7 @@ function ReportCardsEngine() {
                         if (activeClass === "P6" && sub === "French") return null;
                         const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
                         const baseMax = isFrenchP1P5 ? 25 : 50;
+
                         const mData = studentMarks[sub] || {};
                         const t1 = mData[`${selectedTerm}_t1`] ?? "-";
                         const m1 = mData[`${selectedTerm}_m1`] ?? "-";
@@ -420,7 +422,6 @@ function ReportCardsEngine() {
                         }
 
                         const hasMarks = t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-";
-
                         return (
                           <tr key={sub} className="border-b-2 border-black text-gray-900 text-[13px] font-black">
                             <td className="p-2.5 py-3 border-r-4 border-black text-left font-black uppercase text-blue-950">{sub}</td>
@@ -441,7 +442,7 @@ function ReportCardsEngine() {
                                 <td className="p-2.5 border-r-2 border-black text-gray-950">{t1}</td>
                                 <td className="p-2.5 border-r-2 border-black text-gray-950">{m1}</td>
                                 <td className="p-2.5 border-r-2 border-black text-gray-950">{t2}</td>
-                                <td className="p-2.5 border-r-2 border-black text-gray-950">{m2}</td>
+                                <td className="p-2.5 border-r-4 border-black text-gray-950">{m2}</td>
                               </>
                             )}
                             <td className="p-2.5 font-black text-blue-900">
@@ -475,8 +476,7 @@ function ReportCardsEngine() {
                 <div className="grid grid-cols-2 gap-8 pt-4 border-t-4 border-dashed border-gray-400 font-black items-end print-signatures mt-auto">
                   <div className="space-y-0.5">
                     <span className="text-gray-400 uppercase tracking-widest block text-[9px]">Class Teacher:</span>
-                    {/* Kept original layout without text underlining */}
-                    <div className="h-9 flex items-end pb-0.5 text-sm uppercase text-blue-900 tracking-wider font-black print-teacher-line">
+                    <div className="h-9 flex items-end pb-0.5 text-sm uppercase text-blue-900 tracking-wider font-black print-teacher-line border-none">
                       {classTeacherName || "_______________________"}
                     </div>
                   </div>
@@ -498,7 +498,7 @@ function ReportCardsEngine() {
 
 export default function ReportCardsPage() {
   return (
-    <Suspense fallback={<div className="text-center font-black p-10 text-xs text-blue-900 uppercase tracking-widest">Warming Layout Clusters...</div>}>
+    <Suspense fallback={<div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">Loading Report Hub Layout Matrix...</div>}>
       <ReportCardsEngine />
     </Suspense>
   );

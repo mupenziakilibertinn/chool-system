@@ -24,7 +24,7 @@ export default function MarksEntryPage() {
     if (typeof window !== "undefined") {
       const savedEmail = localStorage.getItem("teacherEmail");
       if (savedEmail) {
-        userEmail.trim().toLowerCase();
+        setUserEmail(savedEmail.trim().toLowerCase());
         verifyTeacherPermission(savedEmail.trim().toLowerCase());
       } else {
         setAuthLoading(false);
@@ -139,7 +139,7 @@ export default function MarksEntryPage() {
       ...prev,
       [studentId]: {
         ...prev[studentId],
-        [`${selectedTerm}_activityKey_typeKey`]: value
+        [`${selectedTerm}_${activityKey}_${typeKey}`]: value
       }
     }));
   };
@@ -168,7 +168,7 @@ export default function MarksEntryPage() {
     }
   };
 
-  // New Dedicated Excel Paste Processing Engine for Co-Curricular Data Columns
+  // Dedicated Excel Paste Processing Engine for Co-Curricular Data Columns
   const handleCoCurricularExcelPaste = (e: React.ClipboardEvent<HTMLInputElement>, studentIndex: number, activityKey: string, typeKey: string) => {
     e.preventDefault();
     setValidationError(null);
@@ -649,7 +649,7 @@ export default function MarksEntryPage() {
                   {students.map((student, idx) => {
                     const studentCoRecord = coCurricularMarks[student.id] || {};
                     
-                    // Value calculations
+                    // Controlled safe key assessment reads
                     const sportsMid = studentCoRecord[`${selectedTerm}_sports_mid`] ?? "";
                     const sportsExam = studentCoRecord[`${selectedTerm}_sports_exam`] ?? "";
                     const sportsTotal = (sportsMid !== "" ? Number(sportsMid) : 0) + (sportsExam !== "" ? Number(sportsExam) : 0);

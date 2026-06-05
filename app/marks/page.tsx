@@ -45,7 +45,7 @@ export default function MarksEntryPage() {
           setSelectedAlloc((match as any).allocations[0]);
         }
       } else {
-        alert("  🚫  🚫 ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
+        alert("    🚫    🚫  ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
         localStorage.removeItem("teacherEmail");
       }
     } catch (err) {
@@ -57,6 +57,10 @@ export default function MarksEntryPage() {
   useEffect(() => {
     if (selectedAlloc) {
       setValidationError(null);
+      // Flush roster records immediately during switch async latency phase to remove ghost data overlays
+      setStudents([]);
+      setMarks({});
+      setCoCurricularMarks({});
       fetchStudentRoster();
     }
   }, [selectedAlloc, selectedTerm]);
@@ -69,10 +73,9 @@ export default function MarksEntryPage() {
         .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setStudents(sortedStudents);
-      
+
       let loadedMarks: any = {};
       let loadedCoCurricular: any = {};
-
       await Promise.all(sortedStudents.map(async (student) => {
         const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
         mSnap.forEach((docSnap) => {
@@ -84,7 +87,6 @@ export default function MarksEntryPage() {
           }
         });
       }));
-
       setMarks(loadedMarks);
       setCoCurricularMarks(loadedCoCurricular);
     } catch (err) {
@@ -112,7 +114,7 @@ export default function MarksEntryPage() {
     if (value !== "") {
       const numValue = Number(value);
       if (numValue > maxMarkValue || numValue < 0) {
-        setValidationError(`  ❌  ❌  ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
+        setValidationError(`    ❌    ❌    ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
         return;
       }
     }
@@ -131,7 +133,7 @@ export default function MarksEntryPage() {
     if (value !== "") {
       const numValue = Number(value);
       if (numValue > 5 || numValue < 0) {
-        setValidationError(`  ❌  ❌  ERROR: Maximum score limit for Co-Curricular sections is 5 marks.`);
+        setValidationError(`    ❌    ❌    ERROR: Maximum score limit for Co-Curricular sections is 5 marks.`);
         return;
       }
     }
@@ -153,15 +155,17 @@ export default function MarksEntryPage() {
     if (rows.length > 0) {
       const hasBadValues = rows.some(val => val !== "" && (Number(val) > maxMarkValue || Number(val) < 0));
       if (hasBadValues) {
-        setValidationError(`  🚫  🚫 PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
+        setValidationError(`    🚫    🚫  PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
         return;
       }
       const updatedMarks = { ...marks };
       rows.forEach((value, offset) => {
         const targetStudent = students[studentIndex + offset];
         if (targetStudent) {
-          if (!updatedMarks[targetStudent.id]) updatedMarks[targetStudent.id] = {};
-          updatedMarks[targetStudent.id][`${selectedTerm}_${assessmentKey}`] = value;
+          updatedMarks[targetStudent.id] = {
+            ...updatedMarks[targetStudent.id],
+            [`${selectedTerm}_${assessmentKey}`]: value
+          };
         }
       });
       setMarks(updatedMarks);
@@ -174,22 +178,23 @@ export default function MarksEntryPage() {
     setValidationError(null);
     const pastedData = e.clipboardData.getData("text");
     const rows = pastedData.split(/\r?\n/).map(row => row.trim()).filter(row => row !== "");
-    
+
     if (rows.length > 0) {
       const hasBadValues = rows.some(val => val !== "" && (Number(val) > 5 || Number(val) < 0));
       if (hasBadValues) {
-        setValidationError(`  🚫  🚫 PASTE BLOCKED: One or more values inside your Co-Curricular column exceeds the maximum allowed threshold of 5 marks.`);
+        setValidationError(`    🚫    🚫  PASTE BLOCKED: One or more values inside your Co-Curricular column exceeds the maximum allowed threshold of 5 marks.`);
         return;
       }
-      
+
       const updatedCoMarks = { ...coCurricularMarks };
       const storageKey = `${selectedTerm}_${activityKey}_${typeKey}`;
-
       rows.forEach((value, offset) => {
         const targetStudent = students[studentIndex + offset];
         if (targetStudent) {
-          if (!updatedCoMarks[targetStudent.id]) updatedCoMarks[targetStudent.id] = {};
-          updatedCoMarks[targetStudent.id][storageKey] = value;
+          updatedCoMarks[targetStudent.id] = {
+            ...updatedCoMarks[targetStudent.id],
+            [storageKey]: value
+          };
         }
       });
       setCoCurricularMarks(updatedCoMarks);
@@ -204,18 +209,25 @@ export default function MarksEntryPage() {
     });
     const columnTextTextareaFormat = targetScores.join("\n");
     if (actionType === "copy" || actionType === "cut") {
+      if (!navigator?.clipboard) {
+        alert("Clipboard system framework interface is unavailable on this unsecured network layer connection.");
+        return;
+      }
       try {
         await navigator.clipboard.writeText(columnTextTextareaFormat);
-        alert(`  📋  📋 Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
+        alert(`    📋    📋  Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
       } catch (err) {
-        alert("Clipboard hardware access failed.");
+        alert("Clipboard hardware access permission failed or timed out.");
+        return;
       }
     }
     if (actionType === "cut" || actionType === "clear") {
       const updatedMarks = { ...marks };
       students.forEach(student => {
-        if (!updatedMarks[student.id]) updatedMarks[student.id] = {};
-        updatedMarks[student.id][`${selectedTerm}_${assessmentKey}`] = "";
+        updatedMarks[student.id] = {
+          ...updatedMarks[student.id],
+          [`${selectedTerm}_${assessmentKey}`]: ""
+        };
       });
       setMarks(updatedMarks);
     }
@@ -224,27 +236,32 @@ export default function MarksEntryPage() {
   const handleCoCurricularColumnAction = async (activityKey: string, typeKey: string, label: string, actionType: "copy" | "cut" | "clear") => {
     setValidationError(null);
     const storageKey = `${selectedTerm}_${activityKey}_${typeKey}`;
-    
+
     const targetScores = students.map(student => {
       const score = coCurricularMarks[student.id]?.[storageKey];
       return score !== undefined && score !== null ? String(score) : "";
     });
     const columnTextTextareaFormat = targetScores.join("\n");
-
     if (actionType === "copy" || actionType === "cut") {
+      if (!navigator?.clipboard) {
+        alert("Clipboard system framework interface is unavailable on this connection layer setup.");
+        return;
+      }
       try {
         await navigator.clipboard.writeText(columnTextTextareaFormat);
-        alert(` 📋 Co-Curricular column [${label}] successfully ${actionType === "cut" ? "cut" : "copied"} to clipboard!`);
+        alert(`  📋  Co-Curricular column [${label}] successfully ${actionType === "cut" ? "cut" : "copied"} to clipboard!`);
       } catch (err) {
-        alert("Clipboard hardware access failed.");
+        alert("Clipboard hardware access permission failed.");
+        return;
       }
     }
-
     if (actionType === "cut" || actionType === "clear") {
       const updatedCoMarks = { ...coCurricularMarks };
       students.forEach(student => {
-        if (!updatedCoMarks[student.id]) updatedCoMarks[student.id] = {};
-        updatedCoMarks[student.id][storageKey] = "";
+        updatedCoMarks[student.id] = {
+          ...updatedCoMarks[student.id],
+          [storageKey]: ""
+        };
       });
       setCoCurricularMarks(updatedCoMarks);
     }
@@ -280,7 +297,7 @@ export default function MarksEntryPage() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, studentIndex: number, cellKey: string, isCoCurricular = false) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const selector = isCoCurricular 
+      const selector = isCoCurricular
         ? `input[data-co-idx="${studentIndex + 1}"][data-co-cell="${cellKey}"]`
         : `input[data-student-idx="${studentIndex + 1}"][data-assessment="${cellKey}"]`;
       const nextInput = document.querySelector(selector) as HTMLInputElement;
@@ -293,7 +310,7 @@ export default function MarksEntryPage() {
 
   const handleSaveMarks = async () => {
     if (validationError) {
-      alert("  ⚠️  ⚠️ Cannot save marks sheet while configuration errors are present on screen.");
+      alert("    ⚠️    ⚠️  Cannot save marks sheet while configuration errors are present on screen.");
       return;
     }
     setLoading(true);
@@ -303,7 +320,7 @@ export default function MarksEntryPage() {
         const docRef = doc(db, "students", student.id, "marks", selectedAlloc.subject);
         await setDoc(docRef, studentMarkData, { merge: true });
       }));
-      alert("  ✅  ✅  MARKS PORTAL BACKEND SAVED SUCCESSFULLY!");
+      alert("    ✅    ✅    MARKS PORTAL BACKEND SAVED SUCCESSFULLY!");
     } catch (err) {
       alert("Failed to secure marks matrix changes.");
     }
@@ -312,7 +329,7 @@ export default function MarksEntryPage() {
 
   const handleSaveCoCurricular = async () => {
     if (validationError) {
-      alert("  ⚠️  ⚠️ Fix processing marks validation conflicts before saving.");
+      alert("    ⚠️    ⚠️  Fix processing marks validation conflicts before saving.");
       return;
     }
     setCoCurricularLoading(true);
@@ -322,7 +339,7 @@ export default function MarksEntryPage() {
         const docRef = doc(db, "students", student.id, "marks", "co_curricular");
         await setDoc(docRef, studentCoData, { merge: true });
       }));
-      alert("  🌟  🌟 CO-CURRICULAR ASSESSMENTS REPORT LOCK COMPLETED!");
+      alert("    🌟    🌟  CO-CURRICULAR ASSESSMENTS REPORT LOCK COMPLETED!");
     } catch (err) {
       alert("Failed to register co-curricular metrics.");
     }
@@ -387,7 +404,7 @@ export default function MarksEntryPage() {
                 onClick={() => router.push(`/reports?class=${teacherData.classTeacherOf}`)}
                 className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg uppercase text-[9px] tracking-wider transition-all"
               >
-                Observe My Class Reports   📋  📋 (Stream {teacherData.classTeacherOf})
+                Observe My Class Reports    📋    📋  (Stream {teacherData.classTeacherOf})
               </button>
             )}
             <button
@@ -437,7 +454,7 @@ export default function MarksEntryPage() {
               <div>
                 <h2 className="font-black text-blue-950 uppercase text-xs">MARKS GRADING DASHBOARD</h2>
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Stream {selectedAlloc.class} Level • {selectedAlloc.subject}</p>
-                <p className="text-[9px] text-green-600 font-bold uppercase">   💡  💡 Click top input, paste whole column from Excel, use Enter key to navigate!</p>
+                <p className="text-[9px] text-green-600 font-bold uppercase">    💡    💡  Click top input, paste whole column from Excel, use Enter key to navigate!</p>
               </div>
               <button
                 onClick={handleSaveMarks}
@@ -446,7 +463,7 @@ export default function MarksEntryPage() {
                   validationError ? "bg-gray-400 cursor-not-allowed" : "bg-green-700 hover:bg-green-800"
                 }`}
               >
-                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS    💾  💾 "}
+                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS     💾    💾  "}
               </button>
             </div>
 
@@ -521,7 +538,7 @@ export default function MarksEntryPage() {
                                 min={0}
                                 max={dynamicMax}
                                 value={rawVal ?? ""}
-                                data-student-idx={idx}
+                                data-student-idx={idx + 1}
                                 data-assessment={key}
                                 onChange={(e) => handleMarkChange(student.id, key, e.target.value)}
                                 onKeyDown={(e) => handleKeyDown(e, idx, key)}
@@ -542,7 +559,7 @@ export default function MarksEntryPage() {
                   })}
                   <tr className="bg-blue-50/50 text-[9px] font-black tracking-wide text-blue-950 border-t-2 border-black h-16">
                     <td className="p-3 text-left font-black uppercase bg-blue-900 text-white border-r border-black">
-                      📊   📊 COHORT LIVE INSIGHTS SUMMARY
+                      📊    📊  COHORT LIVE INSIGHTS SUMMARY
                     </td>
                     {assessmentsList.map((key) => {
                       const stats = getAssessmentMetrics(key);
@@ -573,111 +590,109 @@ export default function MarksEntryPage() {
             <div className="flex justify-between items-center border-b pb-2 gap-4 flex-wrap">
               <div>
                 <h2 className="font-black text-neutral-900 uppercase text-xs flex items-center gap-1.5">
-                  🌟 CO-CURRICULAR RESPONSIBILITY WORKSPACE
+                  🌟  CO-CURRICULAR RESPONSIBILITY WORKSPACE
                 </h2>
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
                   Stream {selectedAlloc.class} Domain Control Panel (Sports & Creative Art Only)
                 </p>
                 <p className="text-[9px] text-blue-600 font-bold uppercase">
-                  💡 You can now paste column arrays directly from Excel into any co-curricular input cell below!
+                  💡  You can now paste column arrays directly from Excel into any co-curricular input cell below!
                 </p>
               </div>
               {isDesignatedClassTeacher ? (
                 <button
                   onClick={handleSaveCoCurricular}
                   disabled={coCurricularLoading || !!validationError}
-                  className="font-black text-[10px] uppercase px-5 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-950 text-white shadow transition-all"
+                  className={`font-black text-[10px] uppercase px-5 py-2.5 rounded-xl transition-all shadow text-white ${
+                    validationError ? "bg-gray-400 cursor-not-allowed" : "bg-neutral-800 hover:bg-neutral-900"
+                  }`}
                 >
-                  {coCurricularLoading ? "LOCKING CO-CURRICULAR..." : "SAVE CO-CURRICULAR MARKS 💾"}
+                  {coCurricularLoading ? "LOCKING..." : "SAVE CO-CURRICULAR ASSESSMENTS ✨"}
                 </button>
               ) : (
-                <div className="bg-amber-50 border border-amber-300 text-amber-800 text-[9px] px-3 py-1.5 rounded-xl font-bold uppercase">
-                  🔒 ACCESS RESTRICTED: LOCKED FOR DESIGNATED STREAM {selectedAlloc.class} CLASS TEACHER ONLY
-                </div>
+                <span className="text-[9px] text-amber-600 font-black uppercase bg-amber-50 p-2.5 border rounded-xl max-w-xs text-right">
+                  🔒 View Only Mode (Granted only to designated class stream teacher)
+                </span>
               )}
             </div>
 
             <div className="overflow-x-auto">
-              <table className={`w-full text-center border-collapse border-2 border-black font-black text-xs min-w-[750px] ${!isDesignatedClassTeacher ? "opacity-40 pointer-events-none" : ""}`}>
-                <thead className="bg-neutral-900 text-white uppercase text-[9px] tracking-wider">
+              <table className="w-full text-center border-collapse border-2 border-black font-black text-xs min-w-[700px]">
+                <thead className="bg-neutral-100 border-b-2 border-black uppercase text-[9px] tracking-wider">
                   <tr>
-                    <th rowSpan={2} className="p-3 text-left w-[30%] border-r border-black align-middle">STUDENT REGISTER ENTRY</th>
-                    <th colSpan={3} className="p-2 border-r border-black border-b border-neutral-700 bg-neutral-800">SPORTS & ATHLETICS</th>
-                    <th colSpan={3} className="p-2 bg-neutral-800">CREATIVE ART</th>
-                  </tr>
-                  <tr>
-                    {/* Sports Action Headers */}
-                    <th className="p-1.5 border-r border-black bg-neutral-850 w-[11%]">
-                      <div className="text-[8px] mb-1">MID (/5)</div>
-                      <div className="flex items-center justify-center gap-0.5 font-bold text-[7px]">
-                        <button type="button" onClick={() => handleCoCurricularColumnAction("sports", "mid", "Sports Mid", "copy")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CPY</button>
-                        <button type="button" onClick={() => handleCoCurricularColumnAction("sports", "mid", "Sports Mid", "cut")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CUT</button>
-                        <button type="button" onClick={() => confirm("Clear Sports Mid column?") && handleCoCurricularColumnAction("sports", "mid", "Sports Mid", "clear")} className="bg-red-900 px-0.5 rounded hover:bg-red-800">CLR</button>
-                      </div>
-                    </th>
-                    <th className="p-1.5 border-r border-black bg-neutral-850 w-[11%]">
-                      <div className="text-[8px] mb-1">EXAM (/5)</div>
-                      <div className="flex items-center justify-center gap-0.5 font-bold text-[7px]">
-                        <button type="button" onClick={() => handleCoCurricularColumnAction("sports", "exam", "Sports Exam", "copy")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CPY</button>
-                        <button type="button" onClick={() => handleCoCurricularColumnAction("sports", "exam", "Sports Exam", "cut")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CUT</button>
-                        <button type="button" onClick={() => confirm("Clear Sports Exam column?") && handleCoCurricularColumnAction("sports", "exam", "Sports Exam", "clear")} className="bg-red-900 px-0.5 rounded hover:bg-red-800">CLR</button>
-                      </div>
-                    </th>
-                    <th className="p-1.5 border-r border-black text-[8px] text-yellow-400 bg-neutral-950 w-[11%] align-middle">TOTAL (/10)</th>
-                    
-                    {/* Creative Art Action Headers */}
-                    <th className="p-1.5 border-r border-black bg-neutral-850 w-[11%]">
-                      <div className="text-[8px] mb-1">MID (/5)</div>
-                      <div className="flex items-center justify-center gap-0.5 font-bold text-[7px]">
-                        <button type="button" onClick={() => handleCoCurricularColumnAction("art", "mid", "Art Mid", "copy")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CPY</button>
-                        <button type="button" onClick={() => handleCoCurricularColumnAction("art", "mid", "Art Mid", "cut")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CUT</button>
-                        <button type="button" onClick={() => confirm("Clear Art Mid column?") && handleCoCurricularColumnAction("art", "mid", "Art Mid", "clear")} className="bg-red-900 px-0.5 rounded hover:bg-red-800">CLR</button>
-                      </div>
-                    </th>
-                    <th className="p-1.5 border-r border-black bg-neutral-850 w-[11%]">
-                      <div className="text-[8px] mb-1">EXAM (/5)</div>
-                      <div className="flex items-center justify-center gap-0.5 font-bold text-[7px]">
-                        <button type="button" onClick={() => handleCoCurricularColumnAction("art", "exam", "Art Exam", "copy")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CPY</button>
-                        <button type="button" onClick={() => handleCoCurricularColumnAction("art", "exam", "Art Exam", "cut")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CUT</button>
-                        <button type="button" onClick={() => confirm("Clear Art Exam column?") && handleCoCurricularColumnAction("art", "exam", "Art Exam", "clear")} className="bg-red-900 px-0.5 rounded hover:bg-red-800">CLR</button>
-                      </div>
-                    </th>
-                    <th className="p-1.5 text-[8px] text-yellow-400 bg-neutral-950 w-[11%] align-middle">TOTAL (/10)</th>
+                    <th className="p-3 text-left w-[25%] border-r border-black align-middle">STUDENT LIST</th>
+                    {[
+                      { act: "sports", type: "test", lbl: "SPORTS TEST (/5)" },
+                      { act: "sports", type: "exam", lbl: "SPORTS EXAM (/5)" },
+                      { act: "art", type: "test", lbl: "ART TEST (/5)" },
+                      { act: "art", type: "exam", lbl: "ART EXAM (/5)" }
+                    ].map((col) => (
+                      <th key={`${col.act}_${col.type}`} className="p-2 border-r border-black w-[18.75%]">
+                        <div>{col.lbl}</div>
+                        <div className="flex items-center justify-center gap-1 mt-1.5 font-bold text-[8px] tracking-tight">
+                          <button
+                            type="button"
+                            disabled={!isDesignatedClassTeacher}
+                            onClick={() => handleCoCurricularColumnAction(col.act, col.type, col.lbl, "copy")}
+                            className="bg-blue-50 border text-blue-700 px-1 py-0.5 rounded hover:bg-blue-100 disabled:opacity-50"
+                          >
+                            COPY
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!isDesignatedClassTeacher}
+                            onClick={() => handleCoCurricularColumnAction(col.act, col.type, col.lbl, "cut")}
+                            className="bg-amber-50 border text-amber-700 px-1 py-0.5 rounded hover:bg-amber-100 disabled:opacity-50"
+                          >
+                            CUT
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!isDesignatedClassTeacher}
+                            onClick={() => {
+                              if(confirm(`Wipe out all ${col.lbl} entries?`)) {
+                                handleCoCurricularColumnAction(col.act, col.type, col.lbl, "clear");
+                              }
+                            }}
+                            className="bg-rose-50 border text-rose-700 px-1 py-0.5 rounded hover:bg-rose-100 disabled:opacity-50"
+                          >
+                            CLEAR
+                          </button>
+                        </div>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {students.map((student, idx) => {
-                    const studentCoRecord = coCurricularMarks[student.id] || {};
-                    
-                    // Controlled safe key assessment reads
-                    const sportsMid = studentCoRecord[`${selectedTerm}_sports_mid`] ?? "";
-                    const sportsExam = studentCoRecord[`${selectedTerm}_sports_exam`] ?? "";
-                    const sportsTotal = (sportsMid !== "" ? Number(sportsMid) : 0) + (sportsExam !== "" ? Number(sportsExam) : 0);
-
-                    const artMid = studentCoRecord[`${selectedTerm}_art_mid`] ?? "";
-                    const artExam = studentCoRecord[`${selectedTerm}_art_exam`] ?? "";
-                    const artTotal = (artMid !== "" ? Number(artMid) : 0) + (artExam !== "" ? Number(artExam) : 0);
+                    const coRecord = coCurricularMarks[student.id] || {};
+                    const sportsTest = coRecord[`${selectedTerm}_sports_test`] ?? "";
+                    const sportsExam = coRecord[`${selectedTerm}_sports_exam`] ?? "";
+                    const artTest = coRecord[`${selectedTerm}_art_test`] ?? "";
+                    const artExam = coRecord[`${selectedTerm}_art_exam`] ?? "";
 
                     return (
-                      <tr key={student.id} className="border-b border-black font-bold h-12 text-gray-900 hover:bg-gray-50/60">
-                        <td className="p-3 text-left font-black uppercase text-blue-950 border-r border-black">{student.name}</td>
+                      <tr key={`co_${student.id}`} className="border-b border-black font-bold h-12 text-gray-900 hover:bg-gray-50/60">
+                        <td className="p-3 text-left font-black uppercase text-neutral-800 border-r border-black">{student.name}</td>
                         
-                        {/* Sports Section */}
+                        {/* Sports Test */}
                         <td className="p-2 border-r border-black">
                           <input
                             type="number"
                             min={0}
                             max={5}
-                            value={sportsMid}
+                            value={sportsTest}
                             disabled={!isDesignatedClassTeacher}
-                            data-co-idx={idx}
-                            data-co-cell="sports_mid"
-                            onChange={(e) => handleCoCurricularChange(student.id, "sports", "mid", e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(e, idx, "sports_mid", true)}
-                            onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "sports", "mid")}
-                            className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
+                            data-co-idx={idx + 1}
+                            data-co-cell="sports_test"
+                            onChange={(e) => handleCoCurricularChange(student.id, "sports", "test", e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, idx, "sports_test", true)}
+                            onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "sports", "test")}
+                            className="w-16 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
                         </td>
+
+                        {/* Sports Exam */}
                         <td className="p-2 border-r border-black">
                           <input
                             type="number"
@@ -685,34 +700,33 @@ export default function MarksEntryPage() {
                             max={5}
                             value={sportsExam}
                             disabled={!isDesignatedClassTeacher}
-                            data-co-idx={idx}
+                            data-co-idx={idx + 1}
                             data-co-cell="sports_exam"
                             onChange={(e) => handleCoCurricularChange(student.id, "sports", "exam", e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, idx, "sports_exam", true)}
                             onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "sports", "exam")}
-                            className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
+                            className="w-16 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
                         </td>
-                        <td className="p-2 border-r border-black bg-yellow-50/40 font-black text-center text-xs text-neutral-900">
-                          {sportsMid === "" && sportsExam === "" ? "-" : sportsTotal}
-                        </td>
 
-                        {/* Creative Art Section */}
+                        {/* Art Test */}
                         <td className="p-2 border-r border-black">
                           <input
                             type="number"
                             min={0}
                             max={5}
-                            value={artMid}
+                            value={artTest}
                             disabled={!isDesignatedClassTeacher}
-                            data-co-idx={idx}
-                            data-co-cell="art_mid"
-                            onChange={(e) => handleCoCurricularChange(student.id, "art", "mid", e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(e, idx, "art_mid", true)}
-                            onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "art", "mid")}
-                            className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
+                            data-co-idx={idx + 1}
+                            data-co-cell="art_test"
+                            onChange={(e) => handleCoCurricularChange(student.id, "art", "test", e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, idx, "art_test", true)}
+                            onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "art", "test")}
+                            className="w-16 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
                         </td>
+
+                        {/* Art Exam */}
                         <td className="p-2 border-r border-black">
                           <input
                             type="number"
@@ -720,16 +734,13 @@ export default function MarksEntryPage() {
                             max={5}
                             value={artExam}
                             disabled={!isDesignatedClassTeacher}
-                            data-co-idx={idx}
+                            data-co-idx={idx + 1}
                             data-co-cell="art_exam"
                             onChange={(e) => handleCoCurricularChange(student.id, "art", "exam", e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, idx, "art_exam", true)}
                             onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "art", "exam")}
-                            className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
+                            className="w-16 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
-                        </td>
-                        <td className="p-2 bg-yellow-50/40 font-black text-center text-xs text-neutral-900">
-                          {artMid === "" && artExam === "" ? "-" : artTotal}
                         </td>
                       </tr>
                     );

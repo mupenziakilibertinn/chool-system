@@ -16,6 +16,10 @@ export default function MarksEntryPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Dedicated States for Co-Curricular Tracking Module
+  const [coCurricularMarks, setCoCurricularMarks] = useState<any>({});
+  const [coCurricularLoading, setCoCurricularLoading] = useState(false);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedEmail = localStorage.getItem("teacherEmail");
@@ -41,7 +45,7 @@ export default function MarksEntryPage() {
           setSelectedAlloc((match as any).allocations[0]);
         }
       } else {
-        alert(" 🚫  ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
+        alert("  🚫  🚫 ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
         localStorage.removeItem("teacherEmail");
       }
     } catch (err) {
@@ -65,17 +69,24 @@ export default function MarksEntryPage() {
         .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setStudents(sortedStudents);
-
+      
       let loadedMarks: any = {};
+      let loadedCoCurricular: any = {};
+
       await Promise.all(sortedStudents.map(async (student) => {
         const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
         mSnap.forEach((docSnap) => {
           if (docSnap.id === selectedAlloc.subject) {
             loadedMarks[student.id] = docSnap.data();
           }
+          if (docSnap.id === "co_curricular") {
+            loadedCoCurricular[student.id] = docSnap.data();
+          }
         });
       }));
+
       setMarks(loadedMarks);
+      setCoCurricularMarks(loadedCoCurricular);
     } catch (err) {
       console.error(err);
     }
@@ -101,7 +112,7 @@ export default function MarksEntryPage() {
     if (value !== "") {
       const numValue = Number(value);
       if (numValue > maxMarkValue || numValue < 0) {
-        setValidationError(` ❌  ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
+        setValidationError(`  ❌  ❌  ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
         return;
       }
     }
@@ -110,6 +121,25 @@ export default function MarksEntryPage() {
       [studentId]: {
         ...prev[studentId],
         [`${selectedTerm}_${assessmentKey}`]: value
+      }
+    }));
+  };
+
+  // Handler for Co-Curricular Entry fields (Validated out of 5 marks)
+  const handleCoCurricularChange = (studentId: string, activityKey: string, typeKey: string, value: string) => {
+    setValidationError(null);
+    if (value !== "") {
+      const numValue = Number(value);
+      if (numValue > 5 || numValue < 0) {
+        setValidationError(`  ❌  ❌  ERROR: Maximum score limit for Co-Curricular sections is 5 marks.`);
+        return;
+      }
+    }
+    setCoCurricularMarks((prev: any) => ({
+      ...prev,
+      [studentId]: {
+        ...prev[studentId],
+        [`${selectedTerm}_${activityKey}_${typeKey}`]: value
       }
     }));
   };
@@ -123,7 +153,7 @@ export default function MarksEntryPage() {
     if (rows.length > 0) {
       const hasBadValues = rows.some(val => val !== "" && (Number(val) > maxMarkValue || Number(val) < 0));
       if (hasBadValues) {
-        setValidationError(` 🚫  PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
+        setValidationError(`  🚫  🚫 PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
         return;
       }
       const updatedMarks = { ...marks };
@@ -148,7 +178,7 @@ export default function MarksEntryPage() {
     if (actionType === "copy" || actionType === "cut") {
       try {
         await navigator.clipboard.writeText(columnTextTextareaFormat);
-        alert(` 📋  Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
+        alert(`  📋  📋 Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
       } catch (err) {
         alert("Clipboard hardware access failed.");
       }
@@ -190,12 +220,13 @@ export default function MarksEntryPage() {
     };
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, studentIndex: number, assessmentKey: string) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, studentIndex: number, cellKey: string, isCoCurricular = false) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const nextInput = document.querySelector(
-        `input[data-student-idx="${studentIndex + 1}"][data-assessment="${assessmentKey}"]`
-      ) as HTMLInputElement;
+      const selector = isCoCurricular 
+        ? `input[data-co-idx="${studentIndex + 1}"][data-co-cell="${cellKey}"]`
+        : `input[data-student-idx="${studentIndex + 1}"][data-assessment="${cellKey}"]`;
+      const nextInput = document.querySelector(selector) as HTMLInputElement;
       if (nextInput) {
         nextInput.focus();
         nextInput.select();
@@ -205,7 +236,7 @@ export default function MarksEntryPage() {
 
   const handleSaveMarks = async () => {
     if (validationError) {
-      alert(" ⚠️  Cannot save marks sheet while configuration errors are present on screen.");
+      alert("  ⚠️  ⚠️ Cannot save marks sheet while configuration errors are present on screen.");
       return;
     }
     setLoading(true);
@@ -215,11 +246,31 @@ export default function MarksEntryPage() {
         const docRef = doc(db, "students", student.id, "marks", selectedAlloc.subject);
         await setDoc(docRef, studentMarkData, { merge: true });
       }));
-      alert(" ✅  MARKS PORTAL BACKEND SAVED SUCCESSFULLY!");
+      alert("  ✅  ✅  MARKS PORTAL BACKEND SAVED SUCCESSFULLY!");
     } catch (err) {
       alert("Failed to secure marks matrix changes.");
     }
     setLoading(false);
+  };
+
+  // Dedicated Save Execution for Class Master Co-Curricular Marks
+  const handleSaveCoCurricular = async () => {
+    if (validationError) {
+      alert("  ⚠️  ⚠️ Fix processing marks validation conflicts before saving.");
+      return;
+    }
+    setCoCurricularLoading(true);
+    try {
+      await Promise.all(students.map(async (student) => {
+        const studentCoData = coCurricularMarks[student.id] || {};
+        const docRef = doc(db, "students", student.id, "marks", "co_curricular");
+        await setDoc(docRef, studentCoData, { merge: true });
+      }));
+      alert("  🌟  🌟 CO-CURRICULAR ASSESSMENTS REPORT LOCK COMPLETED!");
+    } catch (err) {
+      alert("Failed to register co-curricular metrics.");
+    }
+    setCoCurricularLoading(false);
   };
 
   if (authLoading) return <div className="text-center font-black p-10 text-blue-900 text-xs uppercase">Verifying Instructor Record...</div>;
@@ -264,6 +315,8 @@ export default function MarksEntryPage() {
     exam: "FINAL EXAM"
   };
 
+  const isDesignatedClassTeacher = selectedAlloc && teacherData.classTeacherOf === selectedAlloc.class;
+
   return (
     <div className="min-h-screen bg-gray-50 text-xs font-sans pb-32 text-gray-800">
       <div className="bg-blue-950 text-white p-4 font-black shadow">
@@ -278,7 +331,7 @@ export default function MarksEntryPage() {
                 onClick={() => router.push(`/reports?class=${teacherData.classTeacherOf}`)}
                 className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg uppercase text-[9px] tracking-wider transition-all"
               >
-                Observe My Class Reports   📋  (Stream {teacherData.classTeacherOf})
+                Observe My Class Reports   📋  📋 (Stream {teacherData.classTeacherOf})
               </button>
             )}
             <button
@@ -328,7 +381,7 @@ export default function MarksEntryPage() {
               <div>
                 <h2 className="font-black text-blue-950 uppercase text-xs">MARKS GRADING DASHBOARD</h2>
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Stream {selectedAlloc.class} Level • {selectedAlloc.subject}</p>
-                <p className="text-[9px] text-green-600 font-bold uppercase">  💡  Click top input, paste whole column from Excel, use Enter key to navigate!</p>
+                <p className="text-[9px] text-green-600 font-bold uppercase">   💡  💡 Click top input, paste whole column from Excel, use Enter key to navigate!</p>
               </div>
               <button
                 onClick={handleSaveMarks}
@@ -337,7 +390,7 @@ export default function MarksEntryPage() {
                   validationError ? "bg-gray-400 cursor-not-allowed" : "bg-green-700 hover:bg-green-800"
                 }`}
               >
-                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS   💾  "}
+                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS    💾  💾 "}
               </button>
             </div>
 
@@ -402,9 +455,7 @@ export default function MarksEntryPage() {
                           const rawVal = studentRecord[`${selectedTerm}_${key}`];
                           const hasMark = rawVal !== undefined && rawVal !== null && rawVal !== "";
                           const currentVal = Number(rawVal ?? 0);
-
                           const { maxMarkValue: dynamicMax, passMarkValue: dynamicPass } = getCellConfiguration(key);
-
                           const isInvalid = hasMark && (currentVal > dynamicMax || currentVal < 0);
                           const isFailing = hasMark && !isInvalid && (currentVal < dynamicPass);
                           return (
@@ -425,7 +476,7 @@ export default function MarksEntryPage() {
                                     : isFailing
                                     ? "bg-amber-50 border-amber-400 text-amber-700 font-extrabold shadow-inner"
                                     : "bg-white border-gray-300 text-gray-900"
-                                  }`}
+                                }`}
                               />
                             </td>
                           );
@@ -435,7 +486,7 @@ export default function MarksEntryPage() {
                   })}
                   <tr className="bg-blue-50/50 text-[9px] font-black tracking-wide text-blue-950 border-t-2 border-black h-16">
                     <td className="p-3 text-left font-black uppercase bg-blue-900 text-white border-r border-black">
-                      📊   COHORT LIVE INSIGHTS SUMMARY
+                      📊   📊 COHORT LIVE INSIGHTS SUMMARY
                     </td>
                     {assessmentsList.map((key) => {
                       const stats = getAssessmentMetrics(key);
@@ -454,6 +505,141 @@ export default function MarksEntryPage() {
                       );
                     })}
                   </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Co-Curricular Work Terminal — Formatted exactly for Sports and Creative Art (Mid/5, Exam/5, Total 10) */}
+        {selectedAlloc && (
+          <div className="bg-white border-2 rounded-2xl shadow-sm p-5 space-y-4">
+            <div className="flex justify-between items-center border-b pb-2 gap-4 flex-wrap">
+              <div>
+                <h2 className="font-black text-neutral-900 uppercase text-xs flex items-center gap-1.5">
+                  🌟 CO-CURRICULAR RESPONSIBILITY WORKSPACE
+                </h2>
+                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
+                  Stream {selectedAlloc.class} Domain Control Panel (Sports & Creative Art Only)
+                </p>
+              </div>
+              {isDesignatedClassTeacher ? (
+                <button
+                  onClick={handleSaveCoCurricular}
+                  disabled={coCurricularLoading || !!validationError}
+                  className="font-black text-[10px] uppercase px-5 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-950 text-white shadow transition-all"
+                >
+                  {coCurricularLoading ? "LOCKING CO-CURRICULAR..." : "SAVE CO-CURRICULAR MARKS 💾"}
+                </button>
+              ) : (
+                <div className="bg-amber-50 border border-amber-300 text-amber-800 text-[9px] px-3 py-1.5 rounded-xl font-bold uppercase">
+                  🔒 ACCESS RESTRICTED: LOCKED FOR DESIGNATED STREAM {selectedAlloc.class} CLASS TEACHER ONLY
+                </div>
+              )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className={`w-full text-center border-collapse border-2 border-black font-black text-xs min-w-[750px] ${!isDesignatedClassTeacher ? "opacity-40 pointer-events-none" : ""}`}>
+                <thead className="bg-neutral-900 text-white uppercase text-[9px] tracking-wider">
+                  <tr>
+                    <th rowSpan={2} className="p-3 text-left w-[30%] border-r border-black align-middle">STUDENT REGISTER ENTRY</th>
+                    <th colSpan={3} className="p-2 border-r border-black border-b border-neutral-700 bg-neutral-800">SPORTS & ATHLETICS</th>
+                    <th colSpan={3} className="p-2 bg-neutral-800">CREATIVE ART</th>
+                  </tr>
+                  <tr>
+                    <th className="p-1.5 border-r border-black text-[8px] bg-neutral-850 w-[11%]">MID (/5)</th>
+                    <th className="p-1.5 border-r border-black text-[8px] bg-neutral-850 w-[11%]">EXAM (/5)</th>
+                    <th className="p-1.5 border-r border-black text-[8px] text-yellow-400 bg-neutral-950 w-[11%]">TOTAL (/10)</th>
+                    <th className="p-1.5 border-r border-black text-[8px] bg-neutral-850 w-[11%]">MID (/5)</th>
+                    <th className="p-1.5 border-r border-black text-[8px] bg-neutral-850 w-[11%]">EXAM (/5)</th>
+                    <th className="p-1.5 text-[8px] text-yellow-400 bg-neutral-950 w-[11%]">TOTAL (/10)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student, idx) => {
+                    const studentCoRecord = coCurricularMarks[student.id] || {};
+                    
+                    // Value calculations
+                    const sportsMid = studentCoRecord[`${selectedTerm}_sports_mid`] ?? "";
+                    const sportsExam = studentCoRecord[`${selectedTerm}_sports_exam`] ?? "";
+                    const sportsTotal = (sportsMid !== "" ? Number(sportsMid) : 0) + (sportsExam !== "" ? Number(sportsExam) : 0);
+
+                    const artMid = studentCoRecord[`${selectedTerm}_art_mid`] ?? "";
+                    const artExam = studentCoRecord[`${selectedTerm}_art_exam`] ?? "";
+                    const artTotal = (artMid !== "" ? Number(artMid) : 0) + (artExam !== "" ? Number(artExam) : 0);
+
+                    return (
+                      <tr key={student.id} className="border-b border-black font-bold h-12 text-gray-900 hover:bg-gray-50/60">
+                        <td className="p-3 text-left font-black uppercase text-blue-950 border-r border-black">{student.name}</td>
+                        
+                        {/* Sports Section */}
+                        <td className="p-2 border-r border-black">
+                          <input
+                            type="number"
+                            min={0}
+                            max={5}
+                            value={sportsMid}
+                            disabled={!isDesignatedClassTeacher}
+                            data-co-idx={idx}
+                            data-co-cell="sports_mid"
+                            onChange={(e) => handleCoCurricularChange(student.id, "sports", "mid", e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, idx, "sports_mid", true)}
+                            className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
+                          />
+                        </td>
+                        <td className="p-2 border-r border-black">
+                          <input
+                            type="number"
+                            min={0}
+                            max={5}
+                            value={sportsExam}
+                            disabled={!isDesignatedClassTeacher}
+                            data-co-idx={idx}
+                            data-co-cell="sports_exam"
+                            onChange={(e) => handleCoCurricularChange(student.id, "sports", "exam", e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, idx, "sports_exam", true)}
+                            className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
+                          />
+                        </td>
+                        <td className="p-2 border-r border-black bg-yellow-50/40 font-black text-center text-xs text-neutral-900">
+                          {sportsMid === "" && sportsExam === "" ? "-" : sportsTotal}
+                        </td>
+
+                        {/* Creative Art Section */}
+                        <td className="p-2 border-r border-black">
+                          <input
+                            type="number"
+                            min={0}
+                            max={5}
+                            value={artMid}
+                            disabled={!isDesignatedClassTeacher}
+                            data-co-idx={idx}
+                            data-co-cell="art_mid"
+                            onChange={(e) => handleCoCurricularChange(student.id, "art", "mid", e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, idx, "art_mid", true)}
+                            className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
+                          />
+                        </td>
+                        <td className="p-2 border-r border-black">
+                          <input
+                            type="number"
+                            min={0}
+                            max={5}
+                            value={artExam}
+                            disabled={!isDesignatedClassTeacher}
+                            data-co-idx={idx}
+                            data-co-cell="art_exam"
+                            onChange={(e) => handleCoCurricularChange(student.id, "art", "exam", e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, idx, "art_exam", true)}
+                            className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
+                          />
+                        </td>
+                        <td className="p-2 bg-yellow-50/40 font-black text-center text-xs text-neutral-900">
+                          {artMid === "" && artExam === "" ? "-" : artTotal}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

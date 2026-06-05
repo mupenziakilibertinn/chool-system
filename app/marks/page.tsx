@@ -193,6 +193,36 @@ export default function MarksEntryPage() {
     }
   };
 
+  // Dedicated Action Handler for Co-Curricular Columns (Excel Tools)
+  const handleCoCurricularColumnAction = async (activityKey: string, typeKey: string, label: string, actionType: "copy" | "cut" | "clear") => {
+    setValidationError(null);
+    const storageKey = `${selectedTerm}_${activityKey}_${typeKey}`;
+    
+    const targetScores = students.map(student => {
+      const score = coCurricularMarks[student.id]?.[storageKey];
+      return score !== undefined && score !== null ? String(score) : "";
+    });
+    const columnTextTextareaFormat = targetScores.join("\n");
+
+    if (actionType === "copy" || actionType === "cut") {
+      try {
+        await navigator.clipboard.writeText(columnTextTextareaFormat);
+        alert(` 📋 Co-Curricular column [${label}] successfully ${actionType === "cut" ? "cut" : "copied"} to clipboard!`);
+      } catch (err) {
+        alert("Clipboard hardware access failed.");
+      }
+    }
+
+    if (actionType === "cut" || actionType === "clear") {
+      const updatedCoMarks = { ...coCurricularMarks };
+      students.forEach(student => {
+        if (!updatedCoMarks[student.id]) updatedCoMarks[student.id] = {};
+        updatedCoMarks[student.id][storageKey] = "";
+      });
+      setCoCurricularMarks(updatedCoMarks);
+    }
+  };
+
   const getAssessmentMetrics = (assessmentKey: string) => {
     const { maxMarkValue, passMarkValue } = getCellConfiguration(assessmentKey);
     let totals = 0;
@@ -547,12 +577,43 @@ export default function MarksEntryPage() {
                     <th colSpan={3} className="p-2 bg-neutral-800">CREATIVE ART</th>
                   </tr>
                   <tr>
-                    <th className="p-1.5 border-r border-black text-[8px] bg-neutral-850 w-[11%]">MID (/5)</th>
-                    <th className="p-1.5 border-r border-black text-[8px] bg-neutral-850 w-[11%]">EXAM (/5)</th>
-                    <th className="p-1.5 border-r border-black text-[8px] text-yellow-400 bg-neutral-950 w-[11%]">TOTAL (/10)</th>
-                    <th className="p-1.5 border-r border-black text-[8px] bg-neutral-850 w-[11%]">MID (/5)</th>
-                    <th className="p-1.5 border-r border-black text-[8px] bg-neutral-850 w-[11%]">EXAM (/5)</th>
-                    <th className="p-1.5 text-[8px] text-yellow-400 bg-neutral-950 w-[11%]">TOTAL (/10)</th>
+                    {/* Sports Action Headers */}
+                    <th className="p-1.5 border-r border-black bg-neutral-850 w-[11%]">
+                      <div className="text-[8px] mb-1">MID (/5)</div>
+                      <div className="flex items-center justify-center gap-0.5 font-bold text-[7px]">
+                        <button type="button" onClick={() => handleCoCurricularColumnAction("sports", "mid", "Sports Mid", "copy")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CPY</button>
+                        <button type="button" onClick={() => handleCoCurricularColumnAction("sports", "mid", "Sports Mid", "cut")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CUT</button>
+                        <button type="button" onClick={() => confirm("Clear Sports Mid column?") && handleCoCurricularColumnAction("sports", "mid", "Sports Mid", "clear")} className="bg-red-900 px-0.5 rounded hover:bg-red-800">CLR</button>
+                      </div>
+                    </th>
+                    <th className="p-1.5 border-r border-black bg-neutral-850 w-[11%]">
+                      <div className="text-[8px] mb-1">EXAM (/5)</div>
+                      <div className="flex items-center justify-center gap-0.5 font-bold text-[7px]">
+                        <button type="button" onClick={() => handleCoCurricularColumnAction("sports", "exam", "Sports Exam", "copy")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CPY</button>
+                        <button type="button" onClick={() => handleCoCurricularColumnAction("sports", "exam", "Sports Exam", "cut")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CUT</button>
+                        <button type="button" onClick={() => confirm("Clear Sports Exam column?") && handleCoCurricularColumnAction("sports", "exam", "Sports Exam", "clear")} className="bg-red-900 px-0.5 rounded hover:bg-red-800">CLR</button>
+                      </div>
+                    </th>
+                    <th className="p-1.5 border-r border-black text-[8px] text-yellow-400 bg-neutral-950 w-[11%] align-middle">TOTAL (/10)</th>
+                    
+                    {/* Creative Art Action Headers */}
+                    <th className="p-1.5 border-r border-black bg-neutral-850 w-[11%]">
+                      <div className="text-[8px] mb-1">MID (/5)</div>
+                      <div className="flex items-center justify-center gap-0.5 font-bold text-[7px]">
+                        <button type="button" onClick={() => handleCoCurricularColumnAction("art", "mid", "Art Mid", "copy")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CPY</button>
+                        <button type="button" onClick={() => handleCoCurricularColumnAction("art", "mid", "Art Mid", "cut")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CUT</button>
+                        <button type="button" onClick={() => confirm("Clear Art Mid column?") && handleCoCurricularColumnAction("art", "mid", "Art Mid", "clear")} className="bg-red-900 px-0.5 rounded hover:bg-red-800">CLR</button>
+                      </div>
+                    </th>
+                    <th className="p-1.5 border-r border-black bg-neutral-850 w-[11%]">
+                      <div className="text-[8px] mb-1">EXAM (/5)</div>
+                      <div className="flex items-center justify-center gap-0.5 font-bold text-[7px]">
+                        <button type="button" onClick={() => handleCoCurricularColumnAction("art", "exam", "Art Exam", "copy")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CPY</button>
+                        <button type="button" onClick={() => handleCoCurricularColumnAction("art", "exam", "Art Exam", "cut")} className="bg-neutral-700 px-1 rounded hover:bg-neutral-600">CUT</button>
+                        <button type="button" onClick={() => confirm("Clear Art Exam column?") && handleCoCurricularColumnAction("art", "exam", "Art Exam", "clear")} className="bg-red-900 px-0.5 rounded hover:bg-red-800">CLR</button>
+                      </div>
+                    </th>
+                    <th className="p-1.5 text-[8px] text-yellow-400 bg-neutral-950 w-[11%] align-middle">TOTAL (/10)</th>
                   </tr>
                 </thead>
                 <tbody>

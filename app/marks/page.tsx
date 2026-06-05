@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, getDocs, doc, setDoc, query, where } from "firebase/firestore";
@@ -83,21 +82,11 @@ export default function MarksEntryPage() {
     setLoading(false);
   };
 
-  // Dynamic parameters helper configuration functions
   const isFrench = selectedAlloc?.subject?.toUpperCase().trim() === "FRENCH";
   const isP6 = selectedAlloc?.class?.toUpperCase().trim() === "P6";
   const isFrenchP1P5 = isFrench && !isP6;
 
   const getCellConfiguration = (assessmentKey: string) => {
-    if (assessmentKey === "exam") {
-      const maxVal = isFrenchP1P5 ? 25 : 50;
-      return {
-        maxMarkValue: maxVal,
-        maxMarkLabel: `/${maxVal}`,
-        passMarkValue: maxVal / 2
-      };
-    }
-    // Fallback configurations for TEST 1, MID 1, TEST 2, MID 2 rows
     const maxVal = isFrenchP1P5 ? 25 : 50;
     return {
       maxMarkValue: maxVal,
@@ -109,7 +98,6 @@ export default function MarksEntryPage() {
   const handleMarkChange = (studentId: string, assessmentKey: string, value: string) => {
     setValidationError(null);
     const { maxMarkValue } = getCellConfiguration(assessmentKey);
-
     if (value !== "") {
       const numValue = Number(value);
       if (numValue > maxMarkValue || numValue < 0) {
@@ -130,12 +118,10 @@ export default function MarksEntryPage() {
     e.preventDefault();
     setValidationError(null);
     const { maxMarkValue } = getCellConfiguration(assessmentKey);
-
     const pastedData = e.clipboardData.getData("text");
     const rows = pastedData.split(/\r?\n/).map(row => row.trim()).filter(row => row !== "");
     if (rows.length > 0) {
       const hasBadValues = rows.some(val => val !== "" && (Number(val) > maxMarkValue || Number(val) < 0));
-
       if (hasBadValues) {
         setValidationError(` 🚫  PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
         return;
@@ -154,7 +140,6 @@ export default function MarksEntryPage() {
 
   const handleColumnAction = async (assessmentKey: string, actionType: "copy" | "cut" | "clear") => {
     setValidationError(null);
-
     const targetScores = students.map(student => {
       const score = marks[student.id]?.[`${selectedTerm}_${assessmentKey}`];
       return score !== undefined && score !== null ? String(score) : "";
@@ -185,7 +170,6 @@ export default function MarksEntryPage() {
     let passes = 0;
     let high = -1;
     let low = maxMarkValue + 1;
-
     students.forEach(s => {
       const markStr = marks[s.id]?.[`${selectedTerm}_${assessmentKey}`];
       if (markStr !== undefined && markStr !== null && markStr !== "") {
@@ -251,7 +235,7 @@ export default function MarksEntryPage() {
               type="email"
               value={userEmail}
               onChange={(e) => setUserEmail(e.target.value)}
-              placeholder="mukarukundo@gmail.com"
+              placeholder="teacher@example.com"
               className="w-full border-2 p-3 rounded-xl font-bold lowercase"
             />
           </div>
@@ -272,12 +256,12 @@ export default function MarksEntryPage() {
   }
 
   const assessmentsList = ["t1", "m1", "t2", "m2", "exam"];
-  const assessmentLabels: Record<string, string> = { 
-    t1: "TEST 1", 
-    m1: "MID 1", 
-    t2: "TEST 2", 
-    m2: "MID 2", 
-    exam: "FINAL EXAM" 
+  const assessmentLabels: Record<string, string> = {
+    t1: "TEST 1",
+    m1: "MID 1",
+    t2: "TEST 2",
+    m2: "MID 2",
+    exam: "FINAL EXAM"
   };
 
   return (
@@ -294,7 +278,7 @@ export default function MarksEntryPage() {
                 onClick={() => router.push(`/reports?class=${teacherData.classTeacherOf}`)}
                 className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg uppercase text-[9px] tracking-wider transition-all"
               >
-                Observe My Class Reports  📋  (Stream {teacherData.classTeacherOf})
+                Observe My Class Reports   📋  (Stream {teacherData.classTeacherOf})
               </button>
             )}
             <button
@@ -309,6 +293,7 @@ export default function MarksEntryPage() {
           </div>
         </div>
       </div>
+
       <div className="max-w-6xl mx-auto p-4 mt-4 space-y-6">
         <div className="bg-white border-2 p-4 rounded-2xl shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-4 font-black">
           <div>
@@ -336,13 +321,14 @@ export default function MarksEntryPage() {
             </select>
           </div>
         </div>
+
         {selectedAlloc && (
           <div className="bg-white border-2 rounded-2xl shadow-sm p-5 space-y-4">
             <div className="flex justify-between items-center border-b pb-2 gap-4 flex-wrap">
               <div>
                 <h2 className="font-black text-blue-950 uppercase text-xs">MARKS GRADING DASHBOARD</h2>
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Stream {selectedAlloc.class} Level • {selectedAlloc.subject}</p>
-                <p className="text-[9px] text-green-600 font-bold uppercase"> 💡  Click top input, paste whole column from Excel, use Enter key to navigate!</p>
+                <p className="text-[9px] text-green-600 font-bold uppercase">  💡  Click top input, paste whole column from Excel, use Enter key to navigate!</p>
               </div>
               <button
                 onClick={handleSaveMarks}
@@ -351,14 +337,16 @@ export default function MarksEntryPage() {
                   validationError ? "bg-gray-400 cursor-not-allowed" : "bg-green-700 hover:bg-green-800"
                 }`}
               >
-                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS  💾 "}
+                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS   💾  "}
               </button>
             </div>
+
             {validationError && (
               <div className="bg-rose-50 border-2 border-rose-300 p-3.5 rounded-xl font-black text-rose-700 text-xs uppercase tracking-wide">
                 {validationError}
               </div>
             )}
+
             <div className="overflow-x-auto">
               <table className="w-full text-center border-collapse border-2 border-black font-black text-xs min-w-[700px]">
                 <thead className="bg-gray-100 border-b-2 border-black uppercase text-[9px] tracking-wider">
@@ -414,9 +402,9 @@ export default function MarksEntryPage() {
                           const rawVal = studentRecord[`${selectedTerm}_${key}`];
                           const hasMark = rawVal !== undefined && rawVal !== null && rawVal !== "";
                           const currentVal = Number(rawVal ?? 0);
-                          
+
                           const { maxMarkValue: dynamicMax, passMarkValue: dynamicPass } = getCellConfiguration(key);
-                          
+
                           const isInvalid = hasMark && (currentVal > dynamicMax || currentVal < 0);
                           const isFailing = hasMark && !isInvalid && (currentVal < dynamicPass);
                           return (
@@ -437,7 +425,7 @@ export default function MarksEntryPage() {
                                     : isFailing
                                     ? "bg-amber-50 border-amber-400 text-amber-700 font-extrabold shadow-inner"
                                     : "bg-white border-gray-300 text-gray-900"
-                                }`}
+                                  }`}
                               />
                             </td>
                           );
@@ -447,7 +435,7 @@ export default function MarksEntryPage() {
                   })}
                   <tr className="bg-blue-50/50 text-[9px] font-black tracking-wide text-blue-950 border-t-2 border-black h-16">
                     <td className="p-3 text-left font-black uppercase bg-blue-900 text-white border-r border-black">
-                      📊  COHORT LIVE INSIGHTS SUMMARY
+                      📊   COHORT LIVE INSIGHTS SUMMARY
                     </td>
                     {assessmentsList.map((key) => {
                       const stats = getAssessmentMetrics(key);

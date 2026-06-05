@@ -7,13 +7,15 @@ import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase
 
 export default function MarksPage() {
   const [user, setUser] = useState<any>(null);
-  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "BIZIMANA FELIX" });
+  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "" });
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedTerm, setSelectedTerm] = useState("ACADEMIC TERM 1");
   const [students, setStudents] = useState<any[]>([]);
   const [outOf, setOutOf] = useState(50);
   
+  // Academic marks state matrix
+  const [academicMarks, setAcademicMarks] = useState<Record<string, any>>({});
   // View mode switcher: "academic" or "cocurricular"
   const [entryMode, setEntryMode] = useState<"academic" | "cocurricular">("academic");
   // Co-curricular marks matrix state
@@ -27,33 +29,59 @@ export default function MarksPage() {
         if (snap.exists()) {
           const d = snap.data(); 
           
-          const combinedClasses = [...(d.classes || [])];
-          if (d.classTeacherOf && !combinedClasses.includes(d.classTeacherOf)) {
-            combinedClasses.push(d.classTeacherOf);
+          // Fallback parsing to support both raw strings and your nested object database structure
+          const extractedClasses = Array.isArray(d.classes) 
+            ? d.classes.map((item: any) => typeof item === 'object' ? item.class : item)
+            : [];
+            
+          const extractedSubjects = Array.isArray(d.classes)
+            ? d.classes.map((item: any) => typeof item === 'object' ? item.subject : "")
+            : [];
+
+          const unifiedClasses = [...new Set(extractedClasses.filter(Boolean))];
+          if (d.classTeacherOf && !unifiedClasses.includes(d.classTeacherOf)) {
+            unifiedClasses.push(d.classTeacherOf);
           }
 
           setConfig({
-            ...d,
-            classes: combinedClasses,
+            name: d.name || "BIZIMANA FELIX",
+            classes: unifiedClasses,
+            rawAssignments: Array.isArray(d.classes) ? d.classes : [],
             classTeacherOf: d.classTeacherOf || ""
           });
           
-          setSelectedClass(d.classes[0] || d.classTeacherOf || ""); 
-          setSelectedSubject(d.subjects?.[0] || "");
+          const initialClass = unifiedClasses[0] || d.classTeacherOf || "";
+          setSelectedClass(initialClass);
+          
+          // Extract the first assigned subject for that specific initial class
+          if (Array.isArray(d.classes)) {
+            const firstMatch = d.classes.find((item: any) => typeof item === 'object' && item.class === initialClass);
+            setSelectedSubject(firstMatch ? firstMatch.subject : (extractedSubjects[0] || ""));
+          }
         }
       }
     });
     return () => unsub();
   }, []);
 
-  // Handle switching view logic cleanly
+  // Update subject automatically when the user changes class stream
+  useEffect(() => {
+    if (entryMode === "academic" && config.rawAssignments && selectedClass) {
+      const match = config.rawAssignments.find((item: any) => typeof item === 'object' && item.class === selectedClass);
+      if (match) {
+        setSelectedSubject(match.subject);
+      }
+    }
+  }, [selectedClass, entryMode, config.rawAssignments]);
+
+  // Synchronize stream views cleanly when switching modes
   useEffect(() => {
     if (entryMode === "cocurricular" && config.classTeacherOf) {
       setSelectedClass(config.classTeacherOf);
-    } else if (entryMode === "academic" && config.classes.length > 0) {
+    } else if (entryMode === "academic" && config.classes && config.classes.length > 0) {
       setSelectedClass(config.classes[0]);
     }
-  }, [entryMode, config.classTeacherOf]);
+  }, [entryMode, config.classTeacherOf, config.classes]);
 
   useEffect(() => {
     if (!selectedClass) return;
@@ -66,21 +94,30 @@ export default function MarksPage() {
         setStudents(list);
 
         if (entryMode === "academic") {
+          const loadedAcademic: Record<string, any> = {};
           for (const s of list) {
             const mSnap = await getDoc(doc(db, "students", s.id, "marks", selectedSubject));
             if (mSnap.exists()) {
               const m = mSnap.data();
-              ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
-                const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
-                if (el) el.value = m[f] !== undefined ? m[f] : "";
-              });
+              // Reverse calculate the visual inputs based on the target base outOf
+              const target = selectedClass === "P6" ? 100 : 50;
+              const reverseCalc = (val: any) => {
+                if (val === undefined || val === "") return "";
+                return String(Math.round((Number(val) * outOf) / target));
+              };
+
+              loadedAcademic[s.id] = {
+                t1: reverseCalc(m.t1),
+                m1: reverseCalc(m.m1),
+                t2: reverseCalc(m.t2),
+                m2: reverseCalc(m.m2),
+                exam: reverseCalc(m.exam)
+              };
             } else {
-              ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
-                const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
-                if (el) el.value = "";
-              });
+              loadedAcademic[s.id] = { t1: "", m1: "", t2: "", m2: "", exam: "" };
             }
           }
+          setAcademicMarks(loadedAcademic);
         } else {
           const loadedCoCurricular: Record<string, any> = {};
           for (const s of list) {
@@ -92,16 +129,16 @@ export default function MarksPage() {
             const sportSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "sport"));
             if (sportSnap.exists()) {
               const data = sportSnap.data();
-              loadedCoCurricular[s.id].sport_p1 = data.p1 !== undefined ? data.p1 : "";
-              loadedCoCurricular[s.id].sport_p2 = data.p2 !== undefined ? data.p2 : "";
+              loadedCoCurricular[s.id].sport_p1 = data.p1 !== undefined ? String(data.p1) : "";
+              loadedCoCurricular[s.id].sport_p2 = data.p2 !== undefined ? String(data.p2) : "";
               loadedCoCurricular[s.id].sport_total = Number(data.p1 || 0) + Number(data.p2 || 0);
             }
 
             const artSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "creative_art"));
             if (artSnap.exists()) {
               const data = artSnap.data();
-              loadedCoCurricular[s.id].art_p1 = data.p1 !== undefined ? data.p1 : "";
-              loadedCoCurricular[s.id].art_p2 = data.p2 !== undefined ? data.p2 : "";
+              loadedCoCurricular[s.id].art_p1 = data.p1 !== undefined ? String(data.p1) : "";
+              loadedCoCurricular[s.id].art_p2 = data.p2 !== undefined ? String(data.p2) : "";
               loadedCoCurricular[s.id].art_total = Number(data.p1 || 0) + Number(data.p2 || 0);
             }
           }
@@ -112,10 +149,20 @@ export default function MarksPage() {
       }
     };
     load();
-  }, [selectedClass, selectedSubject, entryMode]);
+  }, [selectedClass, selectedSubject, entryMode, outOf]);
+
+  const changeAcademicValue = (studentId: string, field: string, val: string) => {
+    setAcademicMarks(prev => ({
+      ...prev,
+      [studentId]: {
+        ...(prev[studentId] || { t1: "", m1: "", t2: "", m2: "", exam: "" }),
+        [field]: val
+      }
+    }));
+  };
 
   const saveAcademic = async (sid: string, field: string, val: string) => {
-    if (!val) return;
+    if (!val && val !== "0") return;
     const target = selectedClass === "P6" ? 100 : 50;
     const final = Math.round((Number(val) / outOf) * target);
     await setDoc(doc(db, "students", sid, "marks", selectedSubject), { [field]: final }, { merge: true });
@@ -159,10 +206,9 @@ export default function MarksPage() {
       <div className="bg-[#11224D] text-white px-8 py-4 flex justify-between items-center shadow-md">
         <div>
           <div className="text-[10px] uppercase font-black text-blue-400 tracking-wider">ACTIVE INSTRUCTOR</div>
-          <div className="text-lg font-black tracking-wide uppercase">{config.name || "BIZIMANA FELIX"}</div>
+          <div className="text-lg font-black tracking-wide uppercase">{config.name}</div>
         </div>
         <div className="flex items-center gap-3">
-          {/* Layout Mode Control Trigger Switch */}
           <button 
             onClick={() => setEntryMode(entryMode === "academic" ? "cocurricular" : "academic")}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow border border-emerald-500 transition-all"
@@ -191,11 +237,15 @@ export default function MarksPage() {
               <select 
                 value={selectedClass} 
                 onChange={(e) => setSelectedClass(e.target.value)}
-                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900定位 outline-none cursor-pointer"
+                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
               >
-                {config.classes.map((c: string) => (
-                  <option key={c} value={c}>CLASS STREAM {c} — {selectedSubject || "KINYARWANDA"}</option>
-                ))}
+                {config.classes.map((c: string) => {
+                  const assignment = config.rawAssignments.find((a: any) => typeof a === 'object' && a.class === c);
+                  const subjName = assignment ? assignment.subject : "SUBJECT";
+                  return (
+                    <option key={c} value={c}>CLASS STREAM {c} — {subjName.toUpperCase()}</option>
+                  );
+                })}
               </select>
             ) : (
               <div className="w-full bg-slate-100 text-slate-800 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-dashed border-slate-400">
@@ -227,7 +277,7 @@ export default function MarksPage() {
               </h2>
               <p className="text-[10px] text-slate-500 uppercase font-bold mt-0.5">
                 {entryMode === "academic" 
-                  ? `STREAM ${selectedClass} LEVEL • ${selectedSubject || "KINYARWANDA"}` 
+                  ? `STREAM ${selectedClass} LEVEL • ${selectedSubject.toUpperCase()}` 
                   : `STREAM ${config.classTeacherOf} SPECIALIZED CO-CURRICULAR TRACK`}
               </p>
               <p className="text-emerald-600 text-[10px] font-bold uppercase mt-1">
@@ -236,9 +286,18 @@ export default function MarksPage() {
             </div>
 
             {entryMode === "academic" ? (
-              <button className="bg-[#00875A] hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
-                COMMIT & LOCK TERM MARKS 💾
-              </button>
+              <div className="flex items-center gap-3">
+                <span className="font-black text-[10px] uppercase text-slate-500">PAPER MAX:</span>
+                <input 
+                  type="number" 
+                  value={outOf} 
+                  onChange={(e) => setOutOf(Number(e.target.value))} 
+                  className="w-16 text-slate-900 font-black p-2 text-center rounded-xl border-2 border-slate-900 outline-none text-xs" 
+                />
+                <button className="bg-[#00875A] hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
+                  COMMIT & LOCK TERM MARKS 💾
+                </button>
+              </div>
             ) : (
               <span className="bg-emerald-50 border border-emerald-300 text-emerald-800 font-black text-[10px] tracking-wider px-4 py-2.5 rounded-xl uppercase">
                 ★ SCALE RANGE MAPPED: 5 + 5 = 10 MAX MARKS PER COLUMN
@@ -266,23 +325,28 @@ export default function MarksPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-300">
-                  {students.map((s, idx) => (
-                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-black uppercase border-r border-slate-300 text-[#11224D] text-sm tracking-wide">{s.name}</td>
-                      {["t1", "m1", "t2", "m2", "exam"].map(f => (
-                        <td key={f} className="p-2 border-r border-slate-300">
-                          <input 
-                            id={`${f}-${s.id}`} 
-                            type="text" 
-                            onBlur={(e) => saveAcademic(s.id, f, e.target.value)} 
-                            onKeyDown={(e) => {if(e.key==="Enter") document.getElementById(`${f}-${students[idx+1]?.id}`)?.focus();}} 
-                            className="w-[100px] mx-auto block p-2 text-center font-black rounded-lg border border-slate-400 outline-none focus:border-slate-900 text-sm shadow-sm" 
-                            placeholder="" 
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                  {students.map((s, idx) => {
+                    const studentMarks = academicMarks[s.id] || { t1: "", m1: "", t2: "", m2: "", exam: "" };
+                    return (
+                      <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-4 font-black uppercase border-r border-slate-300 text-[#11224D] text-sm tracking-wide">{s.name}</td>
+                        {["t1", "m1", "t2", "m2", "exam"].map(f => (
+                          <td key={f} className="p-2 border-r border-slate-300">
+                            <input 
+                              id={`${f}-${s.id}`} 
+                              type="text" 
+                              value={studentMarks[f] || ""}
+                              onChange={(e) => changeAcademicValue(s.id, f, e.target.value)}
+                              onBlur={(e) => saveAcademic(s.id, f, e.target.value)} 
+                              onKeyDown={(e) => {if(e.key==="Enter") document.getElementById(`${f}-${students[idx+1]?.id}`)?.focus();}} 
+                              className="w-[100px] mx-auto block p-2 text-center font-black rounded-lg border border-slate-400 outline-none focus:border-slate-900 text-sm shadow-sm" 
+                              placeholder="" 
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (

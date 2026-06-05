@@ -1,8 +1,9 @@
 "use client";
+
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, getDocs, doc, setDoc, query, where } from "firebase/firestore";
-import { useRouter } from "next/navigation"; 
+import { useRouter } from "next/navigation";
 
 export default function MarksEntryPage() {
   const router = useRouter();
@@ -14,7 +15,6 @@ export default function MarksEntryPage() {
   const [marks, setMarks] = useState<any>({});
   const [loading, setLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
-  
   const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,14 +36,13 @@ export default function MarksEntryPage() {
       const match = tSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .find((t: any) => t.email?.trim().toLowerCase() === email.trim().toLowerCase());
-
       if (match) {
         setTeacherData(match);
         if ((match as any).allocations && (match as any).allocations.length > 0) {
           setSelectedAlloc((match as any).allocations[0]);
         }
       } else {
-        alert("🚫 ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
+        alert(" 🚫  ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
         localStorage.removeItem("teacherEmail");
       }
     } catch (err) {
@@ -66,7 +65,6 @@ export default function MarksEntryPage() {
       const sortedStudents = sSnap.docs
         .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-
       setStudents(sortedStudents);
 
       let loadedMarks: any = {};
@@ -85,26 +83,40 @@ export default function MarksEntryPage() {
     setLoading(false);
   };
 
-  // Dynamic parameters setup
+  // Dynamic parameters helper configuration functions
   const isFrench = selectedAlloc?.subject?.toUpperCase().trim() === "FRENCH";
   const isP6 = selectedAlloc?.class?.toUpperCase().trim() === "P6";
   const isFrenchP1P5 = isFrench && !isP6;
 
-  const maxMarkLabel = isFrenchP1P5 ? "/25" : "/50";
-  const maxMarkValue = isFrenchP1P5 ? 25 : 50;
-  const passMarkValue = maxMarkValue / 2; // 12.5 for French, 25 for others
+  const getCellConfiguration = (assessmentKey: string) => {
+    if (assessmentKey === "exam") {
+      const maxVal = isFrenchP1P5 ? 25 : 50;
+      return {
+        maxMarkValue: maxVal,
+        maxMarkLabel: `/${maxVal}`,
+        passMarkValue: maxVal / 2
+      };
+    }
+    // Fallback configurations for TEST 1, MID 1, TEST 2, MID 2 rows
+    const maxVal = isFrenchP1P5 ? 25 : 50;
+    return {
+      maxMarkValue: maxVal,
+      maxMarkLabel: `/${maxVal}`,
+      passMarkValue: maxVal / 2
+    };
+  };
 
   const handleMarkChange = (studentId: string, assessmentKey: string, value: string) => {
     setValidationError(null);
+    const { maxMarkValue } = getCellConfiguration(assessmentKey);
 
     if (value !== "") {
       const numValue = Number(value);
       if (numValue > maxMarkValue || numValue < 0) {
-        setValidationError(`❌ ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
+        setValidationError(` ❌  ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
         return;
       }
     }
-
     setMarks((prev: any) => ({
       ...prev,
       [studentId]: {
@@ -117,18 +129,17 @@ export default function MarksEntryPage() {
   const handleExcelPaste = (e: React.ClipboardEvent<HTMLInputElement>, studentIndex: number, assessmentKey: string) => {
     e.preventDefault();
     setValidationError(null);
-    
+    const { maxMarkValue } = getCellConfiguration(assessmentKey);
+
     const pastedData = e.clipboardData.getData("text");
     const rows = pastedData.split(/\r?\n/).map(row => row.trim()).filter(row => row !== "");
-
     if (rows.length > 0) {
       const hasBadValues = rows.some(val => val !== "" && (Number(val) > maxMarkValue || Number(val) < 0));
-      
+
       if (hasBadValues) {
-        setValidationError(`🚫 PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
+        setValidationError(` 🚫  PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
         return;
       }
-
       const updatedMarks = { ...marks };
       rows.forEach((value, offset) => {
         const targetStudent = students[studentIndex + offset];
@@ -141,28 +152,22 @@ export default function MarksEntryPage() {
     }
   };
 
-  // BATCH MANAGEMENT SYSTEM (COPY / CUT / CLEAR COLUMNS)
   const handleColumnAction = async (assessmentKey: string, actionType: "copy" | "cut" | "clear") => {
     setValidationError(null);
-    
-    // Extract ordered scores array string
+
     const targetScores = students.map(student => {
       const score = marks[student.id]?.[`${selectedTerm}_${assessmentKey}`];
       return score !== undefined && score !== null ? String(score) : "";
     });
-
     const columnTextTextareaFormat = targetScores.join("\n");
-
     if (actionType === "copy" || actionType === "cut") {
       try {
         await navigator.clipboard.writeText(columnTextTextareaFormat);
-        alert(`📋 Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
+        alert(` 📋  Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
       } catch (err) {
         alert("Clipboard hardware access failed.");
       }
     }
-
-    // Modify dataset state matrix directly if performing destructive actions
     if (actionType === "cut" || actionType === "clear") {
       const updatedMarks = { ...marks };
       students.forEach(student => {
@@ -173,8 +178,8 @@ export default function MarksEntryPage() {
     }
   };
 
-  // LIVE STATS COMPILATION ANALYTICS
   const getAssessmentMetrics = (assessmentKey: string) => {
+    const { maxMarkValue, passMarkValue } = getCellConfiguration(assessmentKey);
     let totals = 0;
     let counted = 0;
     let passes = 0;
@@ -192,7 +197,6 @@ export default function MarksEntryPage() {
         if (val < low) low = val;
       }
     });
-
     return {
       avg: counted > 0 ? (totals / counted).toFixed(1) : "-",
       passRate: counted > 0 ? ((passes / counted) * 100).toFixed(0) : "-",
@@ -217,7 +221,7 @@ export default function MarksEntryPage() {
 
   const handleSaveMarks = async () => {
     if (validationError) {
-      alert("⚠️ Cannot save marks sheet while configuration errors are present on screen.");
+      alert(" ⚠️  Cannot save marks sheet while configuration errors are present on screen.");
       return;
     }
     setLoading(true);
@@ -227,7 +231,7 @@ export default function MarksEntryPage() {
         const docRef = doc(db, "students", student.id, "marks", selectedAlloc.subject);
         await setDoc(docRef, studentMarkData, { merge: true });
       }));
-      alert("✅ MARKS PORTAL BACKEND SAVED SUCCESSFULLY!");
+      alert(" ✅  MARKS PORTAL BACKEND SAVED SUCCESSFULLY!");
     } catch (err) {
       alert("Failed to secure marks matrix changes.");
     }
@@ -243,15 +247,15 @@ export default function MarksEntryPage() {
           <div className="text-center uppercase text-blue-900 font-black tracking-wider border-b pb-2">NGS Teacher System Login</div>
           <div>
             <label className="block mb-1 text-[9px] text-gray-400 uppercase">Registered Work Email</label>
-            <input 
-              type="email" 
-              value={userEmail} 
-              onChange={(e) => setUserEmail(e.target.value)} 
-              placeholder="mukarukundo@gmail.com" 
+            <input
+              type="email"
+              value={userEmail}
+              onChange={(e) => setUserEmail(e.target.value)}
+              placeholder="mukarukundo@gmail.com"
               className="w-full border-2 p-3 rounded-xl font-bold lowercase"
             />
           </div>
-          <button 
+          <button
             onClick={() => {
               if (userEmail) {
                 localStorage.setItem("teacherEmail", userEmail.trim().toLowerCase());
@@ -267,8 +271,14 @@ export default function MarksEntryPage() {
     );
   }
 
-  const assessmentsList = ["t1", "m1", "t2", "m2"];
-  const assessmentLabels: Record<string, string> = { t1: "TEST 1", m1: "MID 1", t2: "TEST 2", m2: "MID 2" };
+  const assessmentsList = ["t1", "m1", "t2", "m2", "exam"];
+  const assessmentLabels: Record<string, string> = { 
+    t1: "TEST 1", 
+    m1: "MID 1", 
+    t2: "TEST 2", 
+    m2: "MID 2", 
+    exam: "FINAL EXAM" 
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 text-xs font-sans pb-32 text-gray-800">
@@ -280,14 +290,14 @@ export default function MarksEntryPage() {
           </div>
           <div className="flex gap-2">
             {teacherData.classTeacherOf && (
-              <button 
+              <button
                 onClick={() => router.push(`/reports?class=${teacherData.classTeacherOf}`)}
                 className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg uppercase text-[9px] tracking-wider transition-all"
               >
-                Observe My Class Reports 📋 (Stream {teacherData.classTeacherOf})
+                Observe My Class Reports  📋  (Stream {teacherData.classTeacherOf})
               </button>
             )}
-            <button 
+            <button
               onClick={() => {
                 localStorage.removeItem("teacherEmail");
                 window.location.reload();
@@ -299,13 +309,12 @@ export default function MarksEntryPage() {
           </div>
         </div>
       </div>
-
       <div className="max-w-6xl mx-auto p-4 mt-4 space-y-6">
         <div className="bg-white border-2 p-4 rounded-2xl shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-4 font-black">
           <div>
             <label className="block text-[9px] text-gray-400 uppercase mb-1">Target Matrix Stream</label>
-            <select 
-              value={selectedAlloc ? JSON.stringify(selectedAlloc) : ""} 
+            <select
+              value={selectedAlloc ? JSON.stringify(selectedAlloc) : ""}
               onChange={(e) => setSelectedAlloc(JSON.parse(e.target.value))}
               className="w-full p-2.5 bg-white border-2 rounded-xl font-black uppercase text-xs"
             >
@@ -316,8 +325,8 @@ export default function MarksEntryPage() {
           </div>
           <div>
             <label className="block text-[9px] text-gray-400 uppercase mb-1">Assessment Target Term</label>
-            <select 
-              value={selectedTerm} 
+            <select
+              value={selectedTerm}
               onChange={(e) => setSelectedTerm(e.target.value)}
               className="w-full p-2.5 bg-white border-2 rounded-xl font-black uppercase text-xs"
             >
@@ -327,79 +336,77 @@ export default function MarksEntryPage() {
             </select>
           </div>
         </div>
-
         {selectedAlloc && (
           <div className="bg-white border-2 rounded-2xl shadow-sm p-5 space-y-4">
             <div className="flex justify-between items-center border-b pb-2 gap-4 flex-wrap">
               <div>
                 <h2 className="font-black text-blue-950 uppercase text-xs">MARKS GRADING DASHBOARD</h2>
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Stream {selectedAlloc.class} Level • {selectedAlloc.subject}</p>
-                <p className="text-[9px] text-green-600 font-bold uppercase">💡 Click top input, paste whole column from Excel, use Enter key to navigate!</p>
+                <p className="text-[9px] text-green-600 font-bold uppercase"> 💡  Click top input, paste whole column from Excel, use Enter key to navigate!</p>
               </div>
-              <button 
+              <button
                 onClick={handleSaveMarks}
                 disabled={loading || !!validationError}
                 className={`font-black text-[10px] uppercase px-5 py-2.5 rounded-xl transition-all shadow text-white ${
                   validationError ? "bg-gray-400 cursor-not-allowed" : "bg-green-700 hover:bg-green-800"
                 }`}
               >
-                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS 💾"}
+                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS  💾 "}
               </button>
             </div>
-
             {validationError && (
               <div className="bg-rose-50 border-2 border-rose-300 p-3.5 rounded-xl font-black text-rose-700 text-xs uppercase tracking-wide">
                 {validationError}
               </div>
             )}
-
             <div className="overflow-x-auto">
               <table className="w-full text-center border-collapse border-2 border-black font-black text-xs min-w-[700px]">
                 <thead className="bg-gray-100 border-b-2 border-black uppercase text-[9px] tracking-wider">
                   <tr>
-                    <th className="p-3 text-left w-[30%] border-r border-black align-middle">STUDENT REGISTER ENTRY</th>
-                    {assessmentsList.map((key) => (
-                      <th key={key} className="p-2 border-r border-black w-[17.5%]">
-                        <div className="text-gray-900 text-[10px]">{assessmentLabels[key]} ({maxMarkLabel})</div>
-                        {/* Control Toolkit Row */}
-                        <div className="flex items-center justify-center gap-1 mt-1.5 font-bold text-[8px] tracking-tight">
-                          <button 
-                            type="button"
-                            onClick={() => handleColumnAction(key, "copy")}
-                            className="bg-blue-50 border text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-100 transition-colors"
-                            title="Copy entire column array"
-                          >
-                            COPY
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => handleColumnAction(key, "cut")}
-                            className="bg-amber-50 border text-amber-700 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors"
-                            title="Cut column array"
-                          >
-                            CUT
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              if(confirm(`Wipe out all marks entries inside ${assessmentLabels[key]}?`)) {
-                                handleColumnAction(key, "clear");
-                              }
-                            }}
-                            className="bg-rose-50 border text-rose-700 px-1 py-0.5 rounded hover:bg-rose-100 transition-colors"
-                            title="Wipe entire data collection column"
-                          >
-                            CLEAR
-                          </button>
-                        </div>
-                      </th>
-                    ))}
+                    <th className="p-3 text-left w-[25%] border-r border-black align-middle">STUDENT REGISTER ENTRY</th>
+                    {assessmentsList.map((key) => {
+                      const { maxMarkLabel: currentLabel } = getCellConfiguration(key);
+                      return (
+                        <th key={key} className="p-2 border-r border-black w-[15%]">
+                          <div className="text-gray-900 text-[10px]">{assessmentLabels[key]} ({currentLabel})</div>
+                          <div className="flex items-center justify-center gap-1 mt-1.5 font-bold text-[8px] tracking-tight">
+                            <button
+                              type="button"
+                              onClick={() => handleColumnAction(key, "copy")}
+                              className="bg-blue-50 border text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-100 transition-colors"
+                              title="Copy entire column array"
+                            >
+                              COPY
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleColumnAction(key, "cut")}
+                              className="bg-amber-50 border text-amber-700 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors"
+                              title="Cut column array"
+                            >
+                              CUT
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if(confirm(`Wipe out all marks entries inside ${assessmentLabels[key]}?`)) {
+                                  handleColumnAction(key, "clear");
+                                }
+                              }}
+                              className="bg-rose-50 border text-rose-700 px-1 py-0.5 rounded hover:bg-rose-100 transition-colors"
+                              title="Wipe entire data collection column"
+                            >
+                              CLEAR
+                            </button>
+                          </div>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {students.map((student, idx) => {
                     const studentRecord = marks[student.id] || {};
-
                     return (
                       <tr key={student.id} className="border-b border-black font-bold h-12 text-gray-900 hover:bg-gray-50/60">
                         <td className="p-3 text-left font-black uppercase text-blue-950 border-r border-black">{student.name}</td>
@@ -407,29 +414,30 @@ export default function MarksEntryPage() {
                           const rawVal = studentRecord[`${selectedTerm}_${key}`];
                           const hasMark = rawVal !== undefined && rawVal !== null && rawVal !== "";
                           const currentVal = Number(rawVal ?? 0);
-
-                          const isInvalid = hasMark && (currentVal > maxMarkValue || currentVal < 0);
-                          const isFailing = hasMark && !isInvalid && (currentVal < passMarkValue);
-
+                          
+                          const { maxMarkValue: dynamicMax, passMarkValue: dynamicPass } = getCellConfiguration(key);
+                          
+                          const isInvalid = hasMark && (currentVal > dynamicMax || currentVal < 0);
+                          const isFailing = hasMark && !isInvalid && (currentVal < dynamicPass);
                           return (
                             <td key={key} className="p-2 border-r border-black">
-                              <input 
-                                type="number" 
+                              <input
+                                type="number"
                                 min={0}
-                                max={maxMarkValue}
-                                value={rawVal ?? ""} 
+                                max={dynamicMax}
+                                value={rawVal ?? ""}
                                 data-student-idx={idx}
                                 data-assessment={key}
                                 onChange={(e) => handleMarkChange(student.id, key, e.target.value)}
                                 onKeyDown={(e) => handleKeyDown(e, idx, key)}
                                 onPaste={(e) => handleExcelPaste(e, idx, key)}
                                 className={`w-16 border-2 p-1 text-center font-black rounded-lg transition-all ${
-                                  isInvalid 
-                                    ? "bg-rose-100 border-rose-600 text-rose-700" 
-                                    : isFailing 
-                                      ? "bg-amber-50 border-amber-400 text-amber-700 font-extrabold shadow-inner" 
-                                      : "bg-white border-gray-300 text-gray-900"
-                                }`} 
+                                  isInvalid
+                                    ? "bg-rose-100 border-rose-600 text-rose-700"
+                                    : isFailing
+                                    ? "bg-amber-50 border-amber-400 text-amber-700 font-extrabold shadow-inner"
+                                    : "bg-white border-gray-300 text-gray-900"
+                                }`}
                               />
                             </td>
                           );
@@ -437,11 +445,9 @@ export default function MarksEntryPage() {
                       </tr>
                     );
                   })}
-
-                  {/* LIVE FOOTER ANALYTICS OVERLAYS ROW */}
                   <tr className="bg-blue-50/50 text-[9px] font-black tracking-wide text-blue-950 border-t-2 border-black h-16">
                     <td className="p-3 text-left font-black uppercase bg-blue-900 text-white border-r border-black">
-                      📊 COHORT LIVE INSIGHTS SUMMARY
+                      📊  COHORT LIVE INSIGHTS SUMMARY
                     </td>
                     {assessmentsList.map((key) => {
                       const stats = getAssessmentMetrics(key);

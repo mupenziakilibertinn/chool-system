@@ -1,231 +1,470 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, doc, getDocs, setDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, query, where } from "firebase/firestore";
+import { useRouter } from "next/navigation"; 
 
-interface Student {
-  id: string;
-  name: string;
-  class: string;
-}
-
-const subjectsList = [
-  { id: "math", name: "Mathematics" },
-  { id: "kiny", name: "Kinyarwanda" },
-  { id: "eng", name: "English" },
-  { id: "set", name: "Science & Elem. Tech (SET)" },
-  { id: "sre", name: "SRE / Religion" },
-  { id: "social", name: "Social Studies" },
-  { id: "french", name: "French" }
-];
-
-export default function EnterMarksPage() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [selectedClass, setSelectedClass] = useState("P4");
+export default function MarksEntryPage() {
+  const router = useRouter();
+  const [userEmail, setUserEmail] = useState("");
+  const [teacherData, setTeacherData] = useState<any>(null);
+  const [selectedAlloc, setSelectedAlloc] = useState<any>(null);
   const [selectedTerm, setSelectedTerm] = useState("term1");
-  const [selectedSubject, setSelectedSubject] = useState("math");
-  
-  const [marksData, setMarksData] = useState<Record<string, any>>({});
+  const [students, setStudents] = useState<any[]>([]);
+  const [marks, setMarks] = useState<any>({});
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  
+  const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Maximum limits: French final exam is 25, all others are 50
-  const getExamMax = (subjectId: string) => {
-    if (subjectId === "french") return 25; 
-    return 50; 
-  };
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedEmail = localStorage.getItem("teacherEmail");
+      if (savedEmail) {
+        setUserEmail(savedEmail.trim().toLowerCase());
+        verifyTeacherPermission(savedEmail.trim().toLowerCase());
+      } else {
+        setAuthLoading(false);
+      }
+    }
+  }, []);
 
-  const getTestMax = (subjectId: string) => {
-    if (subjectId === "french") return 25;
-    return 50;
+  const verifyTeacherPermission = async (email: string) => {
+    setAuthLoading(true);
+    try {
+      const tSnap = await getDocs(collection(db, "teachers"));
+      const match = tSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .find((t: any) => t.email?.trim().toLowerCase() === email.trim().toLowerCase());
+
+      if (match) {
+        setTeacherData(match);
+        if ((match as any).allocations && (match as any).allocations.length > 0) {
+          setSelectedAlloc((match as any).allocations[0]);
+        }
+      } else {
+        alert("🚫 ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
+        localStorage.removeItem("teacherEmail");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    setAuthLoading(false);
   };
 
   useEffect(() => {
-    const loadClassData = async () => {
-      setLoading(true);
-      try {
-        const sSnap = await getDocs(collection(db, "students"));
-        const classList = sSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() } as Student))
-          .filter((s) => s.class?.toUpperCase() === selectedClass.toUpperCase());
-        
-        classList.sort((a, b) => a.name.localeCompare(b.name));
-        setStudents(classList);
+    if (selectedAlloc) {
+      setValidationError(null);
+      fetchStudentRoster();
+    }
+  }, [selectedAlloc, selectedTerm]);
 
-        const temporaryMarks: Record<string, any> = {};
-        await Promise.all(
-          classList.map(async (student) => {
-            const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
-            mSnap.forEach((docSnap) => {
-              if (docSnap.id.toLowerCase().trim() === selectedSubject.toLowerCase()) {
-                temporaryMarks[student.id] = docSnap.data();
-              }
-            });
-          })
-        );
-        setMarksData(temporaryMarks);
-      } catch (err) {
-        console.error("Error loading registry:", err);
+  const fetchStudentRoster = async () => {
+    setLoading(true);
+    try {
+      const sSnap = await getDocs(query(collection(db, "students"), where("class", "==", selectedAlloc.class)));
+      const sortedStudents = sSnap.docs
+        .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+      setStudents(sortedStudents);
+
+      let loadedMarks: any = {};
+      await Promise.all(sortedStudents.map(async (student) => {
+        const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
+        mSnap.forEach((docSnap) => {
+          if (docSnap.id === selectedAlloc.subject) {
+            loadedMarks[student.id] = docSnap.data();
+          }
+        });
+      }));
+      setMarks(loadedMarks);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  // Dynamic parameters setup
+  const isFrench = selectedAlloc?.subject?.toUpperCase().trim() === "FRENCH";
+  const isP6 = selectedAlloc?.class?.toUpperCase().trim() === "P6";
+  const isFrenchP1P5 = isFrench && !isP6;
+
+  const maxMarkLabel = isFrenchP1P5 ? "/25" : "/50";
+  const maxMarkValue = isFrenchP1P5 ? 25 : 50;
+  const passMarkValue = maxMarkValue / 2; // 12.5 for French, 25 for others
+
+  const handleMarkChange = (studentId: string, assessmentKey: string, value: string) => {
+    setValidationError(null);
+
+    if (value !== "") {
+      const numValue = Number(value);
+      if (numValue > maxMarkValue || numValue < 0) {
+        setValidationError(`❌ ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
+        return;
       }
-      setLoading(false);
-    };
+    }
 
-    loadClassData();
-  }, [selectedClass, selectedSubject]);
-
-  const handleInputChange = (studentId: string, field: string, value: string) => {
-    setMarksData((prev) => ({
+    setMarks((prev: any) => ({
       ...prev,
       [studentId]: {
-        ...(prev[studentId] || {}),
-        [field]: value === "" ? "" : Number(value)
+        ...prev[studentId],
+        [`${selectedTerm}_${assessmentKey}`]: value
       }
     }));
   };
 
-  const handleSaveMarks = async () => {
-    setSaving(true);
-    try {
-      await Promise.all(
-        students.map(async (student) => {
-          const studentRecord = marksData[student.id] || {};
-          const ref = doc(db, "students", student.id, "marks", selectedSubject.toLowerCase());
-          await setDoc(ref, studentRecord, { merge: true });
-        })
-      );
-      alert("Marks saved successfully! 👍");
-    } catch (err) {
-      console.error("Save failure:", err);
-      alert("Failed to save changes.");
+  const handleExcelPaste = (e: React.ClipboardEvent<HTMLInputElement>, studentIndex: number, assessmentKey: string) => {
+    e.preventDefault();
+    setValidationError(null);
+    
+    const pastedData = e.clipboardData.getData("text");
+    const rows = pastedData.split(/\r?\n/).map(row => row.trim()).filter(row => row !== "");
+
+    if (rows.length > 0) {
+      const hasBadValues = rows.some(val => val !== "" && (Number(val) > maxMarkValue || Number(val) < 0));
+      
+      if (hasBadValues) {
+        setValidationError(`🚫 PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
+        return;
+      }
+
+      const updatedMarks = { ...marks };
+      rows.forEach((value, offset) => {
+        const targetStudent = students[studentIndex + offset];
+        if (targetStudent) {
+          if (!updatedMarks[targetStudent.id]) updatedMarks[targetStudent.id] = {};
+          updatedMarks[targetStudent.id][`${selectedTerm}_${assessmentKey}`] = value;
+        }
+      });
+      setMarks(updatedMarks);
     }
-    setSaving(false);
   };
 
-  const testMax = getTestMax(selectedSubject);
-  const examMax = getExamMax(selectedSubject);
+  // BATCH MANAGEMENT SYSTEM (COPY / CUT / CLEAR COLUMNS)
+  const handleColumnAction = async (assessmentKey: string, actionType: "copy" | "cut" | "clear") => {
+    setValidationError(null);
+    
+    // Extract ordered scores array string
+    const targetScores = students.map(student => {
+      const score = marks[student.id]?.[`${selectedTerm}_${assessmentKey}`];
+      return score !== undefined && score !== null ? String(score) : "";
+    });
 
-  return (
-    <div className="min-h-screen bg-gray-50 p-6 text-black">
-      <div className="max-w-5xl mx-auto bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
-        
-        {/* Top Selection Fields */}
-        <div className="border-b pb-4 mb-6">
-          <h1 className="text-xl font-black text-blue-900 uppercase tracking-wide">Learner Marks Ledger</h1>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Target Class</label>
-              <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="w-full border p-2 rounded-xl text-xs font-bold bg-white">
-                <option value="P1">Primary 1 (P1)</option>
-                <option value="P2">Primary 2 (P2)</option>
-                <option value="P3">Primary 3 (P3)</option>
-                <option value="P4">Primary 4 (P4)</option>
-                <option value="P5">Primary 5 (P5)</option>
-                <option value="P6">Primary 6 (P6)</option>
-              </select>
-            </div>
+    const columnTextTextareaFormat = targetScores.join("\n");
 
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Academic Term</label>
-              <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="w-full border p-2 rounded-xl text-xs font-bold bg-white">
-                <option value="term1">Term 1</option>
-                <option value="term2">Term 2</option>
-                <option value="term3">Term 3</option>
-              </select>
-            </div>
+    if (actionType === "copy" || actionType === "cut") {
+      try {
+        await navigator.clipboard.writeText(columnTextTextareaFormat);
+        alert(`📋 Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
+      } catch (err) {
+        alert("Clipboard hardware access failed.");
+      }
+    }
 
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Course Pathway</label>
-              <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)} className="w-full border p-2 rounded-xl text-xs font-bold bg-white">
-                {subjectsList.map((sub) => (
-                  <option key={sub.id} value={sub.id}>{sub.name}</option>
-                ))}
-              </select>
-            </div>
+    // Modify dataset state matrix directly if performing destructive actions
+    if (actionType === "cut" || actionType === "clear") {
+      const updatedMarks = { ...marks };
+      students.forEach(student => {
+        if (!updatedMarks[student.id]) updatedMarks[student.id] = {};
+        updatedMarks[student.id][`${selectedTerm}_${assessmentKey}`] = "";
+      });
+      setMarks(updatedMarks);
+    }
+  };
+
+  // LIVE STATS COMPILATION ANALYTICS
+  const getAssessmentMetrics = (assessmentKey: string) => {
+    let totals = 0;
+    let counted = 0;
+    let passes = 0;
+    let high = -1;
+    let low = maxMarkValue + 1;
+
+    students.forEach(s => {
+      const markStr = marks[s.id]?.[`${selectedTerm}_${assessmentKey}`];
+      if (markStr !== undefined && markStr !== null && markStr !== "") {
+        const val = Number(markStr);
+        totals += val;
+        counted++;
+        if (val >= passMarkValue) passes++;
+        if (val > high) high = val;
+        if (val < low) low = val;
+      }
+    });
+
+    return {
+      avg: counted > 0 ? (totals / counted).toFixed(1) : "-",
+      passRate: counted > 0 ? ((passes / counted) * 100).toFixed(0) : "-",
+      highest: high !== -1 ? high : "-",
+      lowest: low !== maxMarkValue + 1 ? low : "-",
+      totalCounted: counted
+    };
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, studentIndex: number, assessmentKey: string) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const nextInput = document.querySelector(
+        `input[data-student-idx="${studentIndex + 1}"][data-assessment="${assessmentKey}"]`
+      ) as HTMLInputElement;
+      if (nextInput) {
+        nextInput.focus();
+        nextInput.select();
+      }
+    }
+  };
+
+  const handleSaveMarks = async () => {
+    if (validationError) {
+      alert("⚠️ Cannot save marks sheet while configuration errors are present on screen.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await Promise.all(students.map(async (student) => {
+        const studentMarkData = marks[student.id] || {};
+        const docRef = doc(db, "students", student.id, "marks", selectedAlloc.subject);
+        await setDoc(docRef, studentMarkData, { merge: true });
+      }));
+      alert("✅ MARKS PORTAL BACKEND SAVED SUCCESSFULLY!");
+    } catch (err) {
+      alert("Failed to secure marks matrix changes.");
+    }
+    setLoading(false);
+  };
+
+  if (authLoading) return <div className="text-center font-black p-10 text-blue-900 text-xs uppercase">Verifying Instructor Record...</div>;
+
+  if (!teacherData) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 text-xs font-black text-gray-700">
+        <div className="bg-white p-6 rounded-2xl border-2 max-w-sm w-full space-y-4 shadow-sm">
+          <div className="text-center uppercase text-blue-900 font-black tracking-wider border-b pb-2">NGS Teacher System Login</div>
+          <div>
+            <label className="block mb-1 text-[9px] text-gray-400 uppercase">Registered Work Email</label>
+            <input 
+              type="email" 
+              value={userEmail} 
+              onChange={(e) => setUserEmail(e.target.value)} 
+              placeholder="mukarukundo@gmail.com" 
+              className="w-full border-2 p-3 rounded-xl font-bold lowercase"
+            />
           </div>
-        </div>
-
-        {/* The Input Grid Layout exactly as seen in f.png */}
-        {loading ? (
-          <div className="text-center font-bold text-gray-400 p-12 tracking-widest animate-pulse">Loading Register Sheet...</div>
-        ) : (
-          <div className="border border-gray-300 rounded-xl overflow-hidden">
-            <table className="w-full text-center border-collapse text-xs">
-              <thead>
-                <tr className="bg-gray-100 border-b border-gray-300 font-black text-[10px] tracking-wider uppercase text-gray-700 h-10">
-                  <th className="text-left pl-4 w-[40%]">Student Full Name</th>
-                  {/* CHANGED FROM /100 TO /50 or /25 based on subject selection */}
-                  <th className="w-[20%]">Test /50</th>
-                  <th className="w-[20%]">Exam /{examMax}</th>
-                  <th className="w-[20%] bg-gray-50/80">Total Score</th>
-                </tr>
-              </thead>
-              <tbody>
-                {students.map((student) => {
-                  const record = marksData[student.id] || {};
-                  const tKey = `${selectedTerm}_t1`;
-                  const mKey = `${selectedTerm}_m1`;
-
-                  const scoreT = record[tKey] !== undefined && record[tKey] !== "" ? Number(record[tKey]) : "";
-                  const scoreM = record[mKey] !== undefined && record[mKey] !== "" ? Number(record[mKey]) : "";
-                  
-                  const combinedTotal = (scoreT !== "" ? scoreT : 0) + (scoreM !== "" ? scoreM : 0);
-                  const hasValues = scoreT !== "" || scoreM !== "";
-
-                  return (
-                    <tr key={student.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50/50 h-12">
-                      <td className="text-left pl-4 font-black text-gray-900 uppercase">{student.name}</td>
-                      
-                      {/* Test Score Column */}
-                      <td className="p-1">
-                        <input
-                          type="number"
-                          min="0"
-                          max={testMax}
-                          placeholder={`Max ${testMax}`}
-                          value={scoreT}
-                          onChange={(e) => handleInputChange(student.id, tKey, e.target.value)}
-                          className="w-24 border-2 rounded-lg p-1.5 text-center font-bold font-mono focus:border-blue-900 focus:outline-none"
-                        />
-                      </td>
-
-                      {/* Exam Score Column */}
-                      <td className="p-1">
-                        <input
-                          type="number"
-                          min="0"
-                          max={examMax}
-                          placeholder={`Max ${examMax}`}
-                          value={scoreM}
-                          onChange={(e) => handleInputChange(student.id, mKey, e.target.value)}
-                          className="w-24 border-2 rounded-lg p-1.5 text-center font-bold font-mono focus:border-blue-900 focus:outline-none"
-                        />
-                      </td>
-
-                      {/* Total Column out of 100 (or 75 if French) */}
-                      <td className="font-mono font-black text-blue-900 text-sm bg-gray-50/50">
-                        {hasValues ? `${combinedTotal} / ${testMax + examMax}` : "-"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Save Button */}
-        <div className="mt-6 flex justify-end">
-          <button
-            onClick={handleSaveMarks}
-            disabled={saving || loading}
-            className="bg-blue-900 hover:bg-blue-950 disabled:bg-gray-400 text-white font-black text-xs uppercase px-8 py-3 rounded-xl shadow transition-all tracking-wide"
+          <button 
+            onClick={() => {
+              if (userEmail) {
+                localStorage.setItem("teacherEmail", userEmail.trim().toLowerCase());
+                verifyTeacherPermission(userEmail.trim().toLowerCase());
+              }
+            }}
+            className="w-full bg-blue-900 text-white py-3 rounded-xl uppercase tracking-wider text-[10px]"
           >
-            {saving ? "Saving..." : "Save Marks"}
+            Access My Marks Sheet
           </button>
         </div>
+      </div>
+    );
+  }
 
+  const assessmentsList = ["t1", "m1", "t2", "m2"];
+  const assessmentLabels: Record<string, string> = { t1: "TEST 1", m1: "MID 1", t2: "TEST 2", m2: "MID 2" };
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-xs font-sans pb-32 text-gray-800">
+      <div className="bg-blue-950 text-white p-4 font-black shadow">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
+          <div>
+            <span className="text-[9px] text-blue-300 uppercase block tracking-wider">ACTIVE INSTRUCTOR</span>
+            <h1 className="text-sm uppercase tracking-wide">{teacherData.name}</h1>
+          </div>
+          <div className="flex gap-2">
+            {teacherData.classTeacherOf && (
+              <button 
+                onClick={() => router.push(`/reports?class=${teacherData.classTeacherOf}`)}
+                className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg uppercase text-[9px] tracking-wider transition-all"
+              >
+                Observe My Class Reports 📋 (Stream {teacherData.classTeacherOf})
+              </button>
+            )}
+            <button 
+              onClick={() => {
+                localStorage.removeItem("teacherEmail");
+                window.location.reload();
+              }}
+              className="bg-red-900 text-white px-3 py-1.5 rounded-lg uppercase text-[9px]"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto p-4 mt-4 space-y-6">
+        <div className="bg-white border-2 p-4 rounded-2xl shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-4 font-black">
+          <div>
+            <label className="block text-[9px] text-gray-400 uppercase mb-1">Target Matrix Stream</label>
+            <select 
+              value={selectedAlloc ? JSON.stringify(selectedAlloc) : ""} 
+              onChange={(e) => setSelectedAlloc(JSON.parse(e.target.value))}
+              className="w-full p-2.5 bg-white border-2 rounded-xl font-black uppercase text-xs"
+            >
+              {teacherData.allocations?.map((a: any, index: number) => (
+                <option key={index} value={JSON.stringify(a)}>Class Stream {a.class} — {a.subject}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[9px] text-gray-400 uppercase mb-1">Assessment Target Term</label>
+            <select 
+              value={selectedTerm} 
+              onChange={(e) => setSelectedTerm(e.target.value)}
+              className="w-full p-2.5 bg-white border-2 rounded-xl font-black uppercase text-xs"
+            >
+              <option value="term1">Academic Term 1</option>
+              <option value="term2">Academic Term 2</option>
+              <option value="term3">Academic Term 3</option>
+            </select>
+          </div>
+        </div>
+
+        {selectedAlloc && (
+          <div className="bg-white border-2 rounded-2xl shadow-sm p-5 space-y-4">
+            <div className="flex justify-between items-center border-b pb-2 gap-4 flex-wrap">
+              <div>
+                <h2 className="font-black text-blue-950 uppercase text-xs">MARKS GRADING DASHBOARD</h2>
+                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Stream {selectedAlloc.class} Level • {selectedAlloc.subject}</p>
+                <p className="text-[9px] text-green-600 font-bold uppercase">💡 Click top input, paste whole column from Excel, use Enter key to navigate!</p>
+              </div>
+              <button 
+                onClick={handleSaveMarks}
+                disabled={loading || !!validationError}
+                className={`font-black text-[10px] uppercase px-5 py-2.5 rounded-xl transition-all shadow text-white ${
+                  validationError ? "bg-gray-400 cursor-not-allowed" : "bg-green-700 hover:bg-green-800"
+                }`}
+              >
+                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS 💾"}
+              </button>
+            </div>
+
+            {validationError && (
+              <div className="bg-rose-50 border-2 border-rose-300 p-3.5 rounded-xl font-black text-rose-700 text-xs uppercase tracking-wide">
+                {validationError}
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-center border-collapse border-2 border-black font-black text-xs min-w-[700px]">
+                <thead className="bg-gray-100 border-b-2 border-black uppercase text-[9px] tracking-wider">
+                  <tr>
+                    <th className="p-3 text-left w-[30%] border-r border-black align-middle">STUDENT REGISTER ENTRY</th>
+                    {assessmentsList.map((key) => (
+                      <th key={key} className="p-2 border-r border-black w-[17.5%]">
+                        <div className="text-gray-900 text-[10px]">{assessmentLabels[key]} ({maxMarkLabel})</div>
+                        {/* Control Toolkit Row */}
+                        <div className="flex items-center justify-center gap-1 mt-1.5 font-bold text-[8px] tracking-tight">
+                          <button 
+                            type="button"
+                            onClick={() => handleColumnAction(key, "copy")}
+                            className="bg-blue-50 border text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-100 transition-colors"
+                            title="Copy entire column array"
+                          >
+                            COPY
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => handleColumnAction(key, "cut")}
+                            className="bg-amber-50 border text-amber-700 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors"
+                            title="Cut column array"
+                          >
+                            CUT
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if(confirm(`Wipe out all marks entries inside ${assessmentLabels[key]}?`)) {
+                                handleColumnAction(key, "clear");
+                              }
+                            }}
+                            className="bg-rose-50 border text-rose-700 px-1 py-0.5 rounded hover:bg-rose-100 transition-colors"
+                            title="Wipe entire data collection column"
+                          >
+                            CLEAR
+                          </button>
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student, idx) => {
+                    const studentRecord = marks[student.id] || {};
+
+                    return (
+                      <tr key={student.id} className="border-b border-black font-bold h-12 text-gray-900 hover:bg-gray-50/60">
+                        <td className="p-3 text-left font-black uppercase text-blue-950 border-r border-black">{student.name}</td>
+                        {assessmentsList.map((key) => {
+                          const rawVal = studentRecord[`${selectedTerm}_${key}`];
+                          const hasMark = rawVal !== undefined && rawVal !== null && rawVal !== "";
+                          const currentVal = Number(rawVal ?? 0);
+
+                          const isInvalid = hasMark && (currentVal > maxMarkValue || currentVal < 0);
+                          const isFailing = hasMark && !isInvalid && (currentVal < passMarkValue);
+
+                          return (
+                            <td key={key} className="p-2 border-r border-black">
+                              <input 
+                                type="number" 
+                                min={0}
+                                max={maxMarkValue}
+                                value={rawVal ?? ""} 
+                                data-student-idx={idx}
+                                data-assessment={key}
+                                onChange={(e) => handleMarkChange(student.id, key, e.target.value)}
+                                onKeyDown={(e) => handleKeyDown(e, idx, key)}
+                                onPaste={(e) => handleExcelPaste(e, idx, key)}
+                                className={`w-16 border-2 p-1 text-center font-black rounded-lg transition-all ${
+                                  isInvalid 
+                                    ? "bg-rose-100 border-rose-600 text-rose-700" 
+                                    : isFailing 
+                                      ? "bg-amber-50 border-amber-400 text-amber-700 font-extrabold shadow-inner" 
+                                      : "bg-white border-gray-300 text-gray-900"
+                                }`} 
+                              />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+
+                  {/* LIVE FOOTER ANALYTICS OVERLAYS ROW */}
+                  <tr className="bg-blue-50/50 text-[9px] font-black tracking-wide text-blue-950 border-t-2 border-black h-16">
+                    <td className="p-3 text-left font-black uppercase bg-blue-900 text-white border-r border-black">
+                      📊 COHORT LIVE INSIGHTS SUMMARY
+                    </td>
+                    {assessmentsList.map((key) => {
+                      const stats = getAssessmentMetrics(key);
+                      return (
+                        <td key={key} className="p-2 border-r border-black text-center align-middle space-y-0.5 text-[8px] leading-tight font-extrabold">
+                          {stats.totalCounted > 0 ? (
+                            <>
+                              <div className="text-blue-700">AVG: <span className="text-xs text-gray-900 font-black">{stats.avg}%</span></div>
+                              <div className="text-emerald-700">PASS: <span className="text-gray-900">{stats.passRate}%</span></div>
+                              <div className="text-gray-500">RANGE: <span className="text-gray-900">{stats.lowest} — {stats.highest}</span></div>
+                            </>
+                          ) : (
+                            <span className="text-gray-400 uppercase italic">NO ENTRIES</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

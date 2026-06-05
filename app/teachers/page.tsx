@@ -7,15 +7,16 @@ import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase
 
 export default function TeacherPage() {
   const [user, setUser] = useState<any>(null);
-  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "" });
+  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "BIZIMANA FELIX" });
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedTerm, setSelectedTerm] = useState("ACADEMIC TERM 1");
   const [students, setStudents] = useState<any[]>([]);
   const [outOf, setOutOf] = useState(50);
   
-  // View mode switcher: "academic" or "cocurricular"
+  // View mode state switcher: "academic" or "cocurricular"
   const [entryMode, setEntryMode] = useState<"academic" | "cocurricular">("academic");
-  // Dedicated co-curricular state container matrix map
+  // Co-curricular marks state matrix
   const [coCurricularMarks, setCoCurricularMarks] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -26,7 +27,6 @@ export default function TeacherPage() {
         if (snap.exists()) {
           const d = snap.data(); 
           
-          // Inject classTeacherOf into layout list array values securely
           const combinedClasses = [...(d.classes || [])];
           if (d.classTeacherOf && !combinedClasses.includes(d.classTeacherOf)) {
             combinedClasses.push(d.classTeacherOf);
@@ -38,7 +38,7 @@ export default function TeacherPage() {
             classTeacherOf: d.classTeacherOf || ""
           });
           
-          setSelectedClass(combinedClasses[0] || d.classTeacherOf || ""); 
+          setSelectedClass(d.classes[0] || d.classTeacherOf || ""); 
           setSelectedSubject(d.subjects?.[0] || "");
         }
       }
@@ -46,14 +46,14 @@ export default function TeacherPage() {
     return () => unsub();
   }, []);
 
-  // Update layout targets dynamically when toggling tabs
+  // Sync selected class automatically when toggling between entry view modes
   useEffect(() => {
     if (entryMode === "cocurricular" && config.classTeacherOf) {
       setSelectedClass(config.classTeacherOf);
     } else if (entryMode === "academic" && config.classes.length > 0) {
       setSelectedClass(config.classes[0]);
     }
-  }, [entryMode, config.classTeacherOf, config.classes]);
+  }, [entryMode, config.classTeacherOf]);
 
   useEffect(() => {
     if (!selectedClass) return;
@@ -108,7 +108,7 @@ export default function TeacherPage() {
           setCoCurricularMarks(loadedCoCurricular);
         }
       } catch (err) {
-        console.error("Data load failure:", err);
+        console.error(err);
       }
     };
     load();
@@ -153,166 +153,222 @@ export default function TeacherPage() {
   if (!user) return <div className="p-10 font-black uppercase text-xs tracking-widest text-center text-blue-900">Checking credentials...</div>;
 
   return (
-    <div className="min-h-screen bg-white font-sans text-xs">
+    <div className="min-h-screen bg-slate-50 font-sans text-xs pb-12">
       
-      {/* Upper Navigation Row Options Toggle Strip */}
-      <div className="bg-gray-800 text-white px-4 py-2 flex gap-4 items-center border-b border-gray-700">
-        <button 
-          onClick={() => setEntryMode("academic")} 
-          className={`px-3 py-1 font-bold uppercase text-[10px] rounded transition-all ${entryMode === "academic" ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}
-        >
-          📖 Academic Subjects
-        </button>
-        {config.classTeacherOf ? (
-          <button 
-            onClick={() => setEntryMode("cocurricular")} 
-            className={`px-3 py-1 font-bold uppercase text-[10px] rounded transition-all ${entryMode === "cocurricular" ? "bg-emerald-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}
-          >
-            🏆 Co-Curricular Activities (Stream {config.classTeacherOf} Only)
-          </button>
-        ) : (
-          <span className="text-[10px] text-gray-500 uppercase italic">🔒 Co-Curricular Locked (Not Class Teacher)</span>
-        )}
-      </div>
-
-      {/* Primary Context Config Headbar */}
-      <div className="bg-blue-900 text-white p-4 flex justify-between items-center sticky top-0 z-50 shadow-md">
-        <div className="flex gap-2 items-center">
-          {entryMode === "academic" ? (
-            <>
-              <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="text-black text-[11px] p-1 font-bold rounded">
-                {config.classes.map((c: string) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)} className="text-black text-[11px] p-1 font-bold rounded">
-                {config.subjects.map((s: string) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </>
-          ) : (
-            <div className="bg-emerald-800 px-3 py-1 rounded font-black text-[11px] uppercase tracking-wide">
-              STREAM {config.classTeacherOf} MANAGEMENT ACTIVE
-            </div>
-          )}
+      {/* AUTH & PROFILE HEADER BAR */}
+      <div className="bg-[#11224D] text-white px-8 py-4 flex justify-between items-center shadow-md">
+        <div>
+          <div className="text-[10px] uppercase font-black text-blue-400 tracking-wider">ACTIVE INSTRUCTOR</div>
+          <div className="text-lg font-black tracking-wide uppercase">{config.name || "BIZIMANA FELIX"}</div>
         </div>
-        
-        {entryMode === "academic" ? (
-          <div className="font-black text-[10px] uppercase tracking-wide">
-            Paper Max Score: <input type="number" value={outOf} onChange={(e) => setOutOf(Number(e.target.value))} className="w-10 text-black font-bold p-1 text-center rounded ml-1" />
-          </div>
-        ) : (
-          <div className="font-black text-[10px] uppercase tracking-wide text-emerald-300">
-            ★ SYSTEM SETTINGS MAX: 5 + 5 = 10 MARKS EACH
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Main Co-Curricular Mode Control Switcher */}
+          <button 
+            onClick={() => setEntryMode(entryMode === "academic" ? "cocurricular" : "academic")}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow border border-emerald-500 transition-all"
+          >
+            {entryMode === "academic" ? "🏆 Go to Co-Curricular" : "📖 Go to Academic Marks"}
+          </button>
+
+          {config.classTeacherOf && (
+            <button className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
+              OBSERVE MY CLASS REPORTS 📋 (STREAM {config.classTeacherOf})
+            </button>
+          )}
+          <button className="bg-[#8B1E1E] hover:bg-red-800 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
+            SIGN OUT
+          </button>
+        </div>
       </div>
 
-      {/* Evaluation Roster Board Component Selection Matrix */}
-      {entryMode === "academic" ? (
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-gray-100 uppercase text-[10px] font-black tracking-wider text-blue-900 border-b">
-            <tr>
-              <th className="p-3 border-r w-1/3">Student Name</th>
-              {["t1", "m1", "t2", "m2", "exam"].map(h => <th key={h} className="border-r p-2 text-center">{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {students.map((s, idx) => (
-              <tr key={s.id} className="border-b hover:bg-blue-50">
-                <td className="p-3 font-bold uppercase border-r text-blue-900">{s.name}</td>
-                {["t1", "m1", "t2", "m2", "exam"].map(f => (
-                  <td key={f} className="p-0 border-r">
-                    <input 
-                      id={`${f}-${s.id}`} 
-                      type="number" 
-                      onBlur={(e) => saveAcademic(s.id, f, e.target.value)} 
-                      onKeyDown={(e) => {if(e.key==="Enter") document.getElementById(`${f}-${students[idx+1]?.id}`)?.focus();}} 
-                      className="w-full p-3 text-center font-bold outline-none focus:bg-white" 
-                      placeholder={`/${outOf}`} 
-                    />
-                  </td>
+      <div className="max-w-[1400px] mx-auto px-6 mt-6">
+        
+        {/* DROPDOWN FILTER CARD CONTAINER */}
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm mb-6 flex gap-6">
+          <div className="flex-1">
+            <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">TARGET MATRIX STREAM</label>
+            {entryMode === "academic" ? (
+              <select 
+                value={selectedClass} 
+                onChange={(e) => setSelectedClass(e.target.value)}
+                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
+              >
+                {config.classes.map((c: string) => (
+                  <option key={c} value={c}>CLASS STREAM {c} — {selectedSubject || "SUBJECT"}</option>
                 ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <table className="w-full text-left border-collapse border border-gray-300">
-          <thead className="bg-emerald-50 uppercase text-[10px] font-black tracking-wider text-emerald-900 border-b border-gray-300">
-            <tr>
-              <th rowSpan={2} className="p-4 border-r border-b border-gray-300 w-1/3 align-middle">Student Name</th>
-              <th colSpan={3} className="border-r border-b border-gray-300 p-2 text-center bg-green-100/50">SPORT MARKS</th>
-              <th colSpan={3} className="border-b border-gray-300 p-2 text-center bg-teal-100/50">CREATIVE ART MARKS</th>
-            </tr>
-            <tr className="bg-gray-50 text-[9px] border-b border-gray-300">
-              <th className="border-r p-1 text-center w-[10%]">Part 1 (/5)</th>
-              <th className="border-r p-1 text-center w-[10%]">Part 2 (/5)</th>
-              <th className="border-r p-1 text-center bg-green-50 w-[10%]">Total (/10)</th>
-              <th className="border-r p-1 text-center w-[10%]">Part 1 (/5)</th>
-              <th className="border-r p-1 text-center w-[10%]">Part 2 (/5)</th>
-              <th className="p-1 text-center bg-teal-50 w-[10%]">Total (/10)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {students.map((s) => {
-              const currentMarks = coCurricularMarks[s.id] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
-              return (
-                <tr key={s.id} className="border-b border-gray-200 hover:bg-emerald-50/40">
-                  <td className="p-3 font-bold uppercase border-r border-gray-300 text-gray-900">{s.name}</td>
-                  
-                  {/* SPORT COLUMNS */}
-                  <td className="p-0 border-r border-gray-300">
-                    <input 
-                      type="number" 
-                      min={0} max={5}
-                      value={currentMarks.sport_p1}
-                      onChange={(e) => saveCoCurricularField(s.id, "sport", "p1", e.target.value)}
-                      className="w-full p-3 text-center font-bold text-gray-800 outline-none" 
-                      placeholder="/5" 
-                    />
-                  </td>
-                  <td className="p-0 border-r border-gray-300">
-                    <input 
-                      type="number" 
-                      min={0} max={5}
-                      value={currentMarks.sport_p2}
-                      onChange={(e) => saveCoCurricularField(s.id, "sport", "p2", e.target.value)}
-                      className="w-full p-3 text-center font-bold text-gray-800 outline-none" 
-                      placeholder="/5" 
-                    />
-                  </td>
-                  <td className="p-3 text-center font-black bg-green-50 border-r border-gray-300 text-green-900 text-sm">
-                    {currentMarks.sport_total}
-                  </td>
+              </select>
+            ) : (
+              <div className="w-full bg-slate-100 text-slate-800 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-dashed border-slate-400">
+                CO-CURRICULAR FIELD MATRIX — STREAM {config.classTeacherOf} ONLY
+              </div>
+            )}
+          </div>
 
-                  {/* ART COLUMNS */}
-                  <td className="p-0 border-r border-gray-300">
-                    <input 
-                      type="number" 
-                      min={0} max={5}
-                      value={currentMarks.art_p1}
-                      onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p1", e.target.value)}
-                      className="w-full p-3 text-center font-bold text-gray-800 outline-none" 
-                      placeholder="/5" 
-                    />
-                  </td>
-                  <td className="p-0 border-r border-gray-300">
-                    <input 
-                      type="number" 
-                      min={0} max={5}
-                      value={currentMarks.art_p2}
-                      onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p2", e.target.value)}
-                      className="w-full p-3 text-center font-bold text-gray-800 outline-none" 
-                      placeholder="/5" 
-                    />
-                  </td>
-                  <td className="p-3 text-center font-black bg-teal-50 text-teal-900 text-sm">
-                    {currentMarks.art_total}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+          <div className="flex-1">
+            <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">ASSESSMENT TARGET TERM</label>
+            <select 
+              value={selectedTerm}
+              onChange={(e) => setSelectedTerm(e.target.value)}
+              className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
+            >
+              <option value="ACADEMIC TERM 1">ACADEMIC TERM 1</option>
+              <option value="ACADEMIC TERM 2">ACADEMIC TERM 2</option>
+              <option value="ACADEMIC TERM 3">ACADEMIC TERM 3</option>
+            </select>
+          </div>
+        </div>
+
+        {/* MAIN ROSTER DASHBOARD COMPONENT */}
+        <div className="bg-white rounded-2xl border border-slate-900 p-6 shadow-sm overflow-hidden">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h2 className="text-[#11224D] text-md font-black uppercase tracking-wide">
+                {entryMode === "academic" ? "MARKS GRADING DASHBOARD" : "CO-CURRICULAR SKILLS EVALUATION"}
+              </h2>
+              <p className="text-[10px] text-slate-500 uppercase font-bold mt-0.5">
+                {entryMode === "academic" 
+                  ? `STREAM ${selectedClass} LEVEL • ${selectedSubject}` 
+                  : `STREAM ${config.classTeacherOf} SPECIALIZED CO-CURRICULAR TRACK`}
+              </p>
+              <p className="text-emerald-600 text-[10px] font-bold uppercase mt-1">
+                💡 Click top input, paste whole column from Excel, use Enter key to navigate!
+              </p>
+            </div>
+
+            {entryMode === "academic" ? (
+              <div className="flex items-center gap-3">
+                <span className="font-black text-[10px] uppercase text-slate-500">PAPER MAX:</span>
+                <input 
+                  type="number" 
+                  value={outOf} 
+                  onChange={(e) => setOutOf(Number(e.target.value))} 
+                  className="w-16 text-slate-900 font-black p-2 text-center rounded-xl border-2 border-slate-900 outline-none text-xs" 
+                />
+                <button className="bg-[#00875A] hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
+                  COMMIT & LOCK TERM MARKS 💾
+                </button>
+              </div>
+            ) : (
+              <span className="bg-emerald-50 border border-emerald-300 text-emerald-800 font-black text-[10px] tracking-wider px-4 py-2.5 rounded-xl uppercase">
+                ★ SCALE RANGE MAPPED: 5 + 5 = 10 MAX MARKS PER COLUMN
+              </span>
+            )}
+          </div>
+
+          {/* EVALUATION MATRIX DATA GRID */}
+          <div className="border-2 border-slate-900 rounded-xl overflow-hidden">
+            {entryMode === "academic" ? (
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 uppercase text-[10px] font-black text-slate-800 border-b-2 border-slate-900">
+                  <tr>
+                    <th className="p-4 border-r border-slate-300 w-2/5">STUDENT REGISTER ENTRY</th>
+                    {["TEST 1 (/50)", "MID 1 (/50)", "TEST 2 (/50)", "MID 2 (/50)", "FINAL EXAM (/50)"].map(h => (
+                      <th key={h} className="border-r border-slate-300 p-2 text-center">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y-2 divide-slate-200">
+                  {students.map((s, idx) => (
+                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-4 font-black uppercase border-r border-slate-300 text-[#11224D]">{s.name}</td>
+                      {["t1", "m1", "t2", "m2", "exam"].map(f => (
+                        <td key={f} className="p-2 border-r border-slate-300">
+                          <input 
+                            id={`${f}-${s.id}`} 
+                            type="number" 
+                            onBlur={(e) => saveAcademic(s.id, f, e.target.value)} 
+                            onKeyDown={(e) => {if(e.key==="Enter") document.getElementById(`${f}-${students[idx+1]?.id}`)?.focus();}} 
+                            className="w-full max-w-[100px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-slate-900 text-sm" 
+                            placeholder="0" 
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-emerald-50/60 uppercase text-[10px] font-black text-slate-800 border-b-2 border-slate-900">
+                  <tr>
+                    <th rowSpan={2} className="p-4 border-r border-slate-300 w-2/5 align-middle">STUDENT REGISTER ENTRY</th>
+                    <th colSpan={3} className="border-r border-slate-300 p-3 text-center bg-green-50 tracking-wider font-black text-green-950">SPORT ACTIVITIES</th>
+                    <th colSpan={3} className="p-3 text-center bg-teal-50 tracking-wider font-black text-teal-950">CREATIVE ARTS</th>
+                  </tr>
+                  <tr className="bg-slate-100 text-[9px] border-b-2 border-slate-900 text-slate-600">
+                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 1 (/5)</th>
+                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 2 (/5)</th>
+                    <th className="border-r border-slate-300 p-2 text-center bg-green-100/60 font-black text-green-900 w-[10%]">Total (/10)</th>
+                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 1 (/5)</th>
+                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 2 (/5)</th>
+                    <th className="p-2 text-center bg-teal-100/60 font-black text-teal-900 w-[10%]">Total (/10)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y-2 divide-slate-200">
+                  {students.map((s) => {
+                    const currentMarks = coCurricularMarks[s.id] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
+                    return (
+                      <tr key={s.id} className="hover:bg-emerald-50/20 transition-colors">
+                        <td className="p-4 font-black uppercase border-r border-slate-300 text-slate-900">{s.name}</td>
+                        
+                        {/* SPORT FIELD ENTRYS */}
+                        <td className="p-2 border-r border-slate-300">
+                          <input 
+                            type="number" 
+                            min={0} max={5}
+                            value={currentMarks.sport_p1}
+                            onChange={(e) => saveCoCurricularField(s.id, "sport", "p1", e.target.value)}
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-emerald-600 text-sm" 
+                            placeholder="/5" 
+                          />
+                        </td>
+                        <td className="p-2 border-r border-slate-300">
+                          <input 
+                            type="number" 
+                            min={0} max={5}
+                            value={currentMarks.sport_p2}
+                            onChange={(e) => saveCoCurricularField(s.id, "sport", "p2", e.target.value)}
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-emerald-600 text-sm" 
+                            placeholder="/5" 
+                          />
+                        </td>
+                        <td className="p-4 text-center font-black bg-green-50 text-green-700 text-md border-r border-slate-300">
+                          {currentMarks.sport_total}
+                        </td>
+
+                        {/* ART FIELD ENTRYS */}
+                        <td className="p-2 border-r border-slate-300">
+                          <input 
+                            type="number" 
+                            min={0} max={5}
+                            value={currentMarks.art_p1}
+                            onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p1", e.target.value)}
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-teal-600 text-sm" 
+                            placeholder="/5" 
+                          />
+                        </td>
+                        <td className="p-2 border-r border-slate-300">
+                          <input 
+                            type="number" 
+                            min={0} max={5}
+                            value={currentMarks.art_p2}
+                            onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p2", e.target.value)}
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-teal-600 text-sm" 
+                            placeholder="/5" 
+                          />
+                        </td>
+                        <td className="p-4 text-center font-black bg-teal-50 text-teal-700 text-md">
+                          {currentMarks.art_total}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

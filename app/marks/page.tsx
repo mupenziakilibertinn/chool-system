@@ -30,7 +30,7 @@ export default function EnterMarksPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // CORRECTED: French is out of 25, everything else is out of 50
+  // Maximum limits: French final exam is 25, all others are 50
   const getExamMax = (subjectId: string) => {
     if (subjectId === "french") return 25; 
     return 50; 
@@ -109,7 +109,7 @@ export default function EnterMarksPage() {
     <div className="min-h-screen bg-gray-50 p-6 text-black">
       <div className="max-w-5xl mx-auto bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
         
-        {/* Controls Bar Header */}
+        {/* Top Selection Fields */}
         <div className="border-b pb-4 mb-6">
           <h1 className="text-xl font-black text-blue-900 uppercase tracking-wide">Learner Marks Ledger</h1>
           
@@ -146,13 +146,7 @@ export default function EnterMarksPage() {
           </div>
         </div>
 
-        {/* Dynamic Parameter Label */}
-        <div className="bg-blue-50 border border-blue-200 text-blue-950 font-bold rounded-xl px-4 py-2.5 text-xs mb-4 uppercase tracking-tight flex justify-between">
-          <span>Active Assessment Parameters:</span>
-          <span>Mid Test: /{testMax} | Final Exam: <span className="underline text-red-700 font-black">/{examMax}</span></span>
-        </div>
-
-        {/* Grid Ledger Table */}
+        {/* The Input Grid Layout exactly as seen in f.png */}
         {loading ? (
           <div className="text-center font-bold text-gray-400 p-12 tracking-widest animate-pulse">Loading Register Sheet...</div>
         ) : (
@@ -161,9 +155,10 @@ export default function EnterMarksPage() {
               <thead>
                 <tr className="bg-gray-100 border-b border-gray-300 font-black text-[10px] tracking-wider uppercase text-gray-700 h-10">
                   <th className="text-left pl-4 w-[40%]">Student Full Name</th>
-                  <th className="w-[20%]">Mid Test 1 (/{testMax})</th>
-                  <th className="w-[20%]">Final Exam (/{examMax})</th>
-                  <th className="w-[20%] bg-gray-50/80">Combined Score</th>
+                  {/* CHANGED FROM /100 TO /50 or /25 based on subject selection */}
+                  <th className="w-[20%]">Test /50</th>
+                  <th className="w-[20%]">Exam /{examMax}</th>
+                  <th className="w-[20%] bg-gray-50/80">Total Score</th>
                 </tr>
               </thead>
               <tbody>
@@ -182,7 +177,7 @@ export default function EnterMarksPage() {
                     <tr key={student.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50/50 h-12">
                       <td className="text-left pl-4 font-black text-gray-900 uppercase">{student.name}</td>
                       
-                      {/* Mid Test Score */}
+                      {/* Test Score Column */}
                       <td className="p-1">
                         <input
                           type="number"
@@ -195,7 +190,7 @@ export default function EnterMarksPage() {
                         />
                       </td>
 
-                      {/* Final Exam Column - Corrected Highlight and Limit */}
+                      {/* Exam Score Column */}
                       <td className="p-1">
                         <input
                           type="number"
@@ -204,12 +199,11 @@ export default function EnterMarksPage() {
                           placeholder={`Max ${examMax}`}
                           value={scoreM}
                           onChange={(e) => handleInputChange(student.id, mKey, e.target.value)}
-                          className={`w-24 border-2 rounded-lg p-1.5 text-center font-bold font-mono focus:outline-none ${
-                            selectedSubject === "french" ? "border-amber-500 focus:border-amber-700" : "focus:border-blue-900"
-                          }`}
+                          className="w-24 border-2 rounded-lg p-1.5 text-center font-bold font-mono focus:border-blue-900 focus:outline-none"
                         />
                       </td>
 
+                      {/* Total Column out of 100 (or 75 if French) */}
                       <td className="font-mono font-black text-blue-900 text-sm bg-gray-50/50">
                         {hasValues ? `${combinedTotal} / ${testMax + examMax}` : "-"}
                       </td>
@@ -228,7 +222,7 @@ export default function EnterMarksPage() {
             disabled={saving || loading}
             className="bg-blue-900 hover:bg-blue-950 disabled:bg-gray-400 text-white font-black text-xs uppercase px-8 py-3 rounded-xl shadow transition-all tracking-wide"
           >
-            {saving ? "Saving Changes... 💾" : "Save Input Ledger Marks 💾"}
+            {saving ? "Saving..." : "Save Marks"}
           </button>
         </div>
 

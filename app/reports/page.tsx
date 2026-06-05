@@ -19,12 +19,15 @@ const coCurricularSubjects = [
   { name: "CREATIVE ART", maxInt: 5, maxEx: 5 }
 ];
 
+type ViewMode = "midterm_report" | "full_term_report";
+
 function ReportCardsEngine() {
   const searchParams = useSearchParams();
   const urlClass = searchParams.get("class");
   const urlStudentId = searchParams.get("studentId");
   const activeClass = urlClass ? urlClass.toUpperCase() : "P4";
 
+  const [viewMode, setViewMode] = useState<ViewMode>("full_term_report");
   const [students, setStudents] = useState<any[]>([]);
   const [allMarks, setAllMarks] = useState<any>({});
   const [classTeacherName, setClassTeacherName] = useState("");
@@ -40,7 +43,7 @@ function ReportCardsEngine() {
     const fetchClassReports = async () => {
       setLoading(true);
       try {
-        // 1. Fetch Class Teacher Profile Details
+        // 1. Load Teacher Info
         const tSnap = await getDocs(collection(db, "teachers"));
         let detectedTeacher = "";
         tSnap.forEach((docSnap) => {
@@ -57,13 +60,13 @@ function ReportCardsEngine() {
         });
         setClassTeacherName(detectedTeacher.toUpperCase());
 
-        // 2. Fetch Class Roster
+        // 2. Load Class Roster
         const sSnap = await getDocs(collection(db, "students"));
         const classFiltered = sSnap.docs
           .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
           .filter((s) => s.class?.toUpperCase() === activeClass);
 
-        // 3. Populate Marks Matrices across Terms
+        // 3. Populate Marks Matrices
         let marksMatrix: any = {};
         await Promise.all(classFiltered.map(async (student) => {
           const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
@@ -81,75 +84,69 @@ function ReportCardsEngine() {
         }));
         setAllMarks(marksMatrix);
 
-        // 4. Processing Annual Metrics
+        // 4. Calculate Scores and Ranks based strictly on active layout view mode selection
         const processedStudents = classFiltered.map((student) => {
           const studentMarks = marksMatrix[student.id] || {};
           
-          let academicMaxTotal = 0;
-          let academicAcquiredTotal = 0;
-          let fullMaxTotal = 0;
-          let fullAcquiredTotal = 0;
+          let scoreAcquired = 0;
+          let scoreMaxTotal = 0;
 
-          // Compute Term totals cleanly
-          const getTermTotals = (term: string) => {
-            let acq = 0;
-            let mx = 0;
-            [...academicSubjects, ...coCurricularSubjects].forEach((sub) => {
+          // Helper logic to map standard terms sequentially
+          const terms = ["term1", "term2", "term3"];
+
+          if (viewMode === "midterm_report") {
+            // Mid-Term Report: Looks ONLY at MID 1 and MID 2 columns for Academic Subjects across all 3 terms
+            academicSubjects.forEach((sub) => {
               if (activeClass === "P6" && sub.name === "FRANÇAIS") return;
               const mData = studentMarks[sub.name] || {};
-              const midVal = mData[`${term}_t1`] ?? mData[`${term}_m1`] ?? "-";
-              const exVal = mData[`${term}_t2`] ?? mData[`${term}_m2`] ?? "-";
-              
-              if (midVal !== "-" || exVal !== "-") {
-                acq += (midVal !== "-" ? Number(midVal) : 0) + (exVal !== "-" ? Number(exVal) : 0);
-              }
-              mx += sub.maxInt + sub.maxEx;
+              terms.forEach((t) => {
+                const m1 = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
+                const m2 = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
+                
+                if (m1 !== "-") scoreAcquired += Number(m1);
+                if (m2 !== "-") scoreAcquired += Number(m2);
+                scoreMaxTotal += sub.maxInt + sub.maxEx;
+              });
             });
-            return { acq, mx };
-          };
-
-          const t1Metrics = getTermTotals("term1");
-          const t2Metrics = getTermTotals("term2");
-          const t3Metrics = getTermTotals("term3");
-
-          academicSubjects.forEach((sub) => {
-            if (activeClass === "P6" && sub.name === "FRANÇAIS") return;
-            academicMaxTotal += (sub.maxInt + sub.maxEx) * 3;
-            const mData = studentMarks[sub.name] || {};
-            ["term1", "term2", "term3"].forEach((t) => {
-              const m = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
-              const e = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
-              academicAcquiredTotal += (m !== "-" ? Number(m) : 0) + (e !== "-" ? Number(e) : 0);
+          } else {
+            // Full Term Report: Calculates Academic Subjects (MID + EXAM) + Co-Curricular entries
+            academicSubjects.forEach((sub) => {
+              if (activeClass === "P6" && sub.name === "FRANÇAIS") return;
+              const mData = studentMarks[sub.name] || {};
+              terms.forEach((t) => {
+                const mid = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
+                const ex = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
+                
+                if (mid !== "-") scoreAcquired += Number(mid);
+                if (ex !== "-") scoreAcquired += Number(ex);
+                scoreMaxTotal += sub.maxInt + sub.maxEx;
+              });
             });
-          });
 
-          coCurricularSubjects.forEach((sub) => {
-            fullMaxTotal += (sub.maxInt + sub.maxEx) * 3;
-            const mData = studentMarks[sub.name] || {};
-            ["term1", "term2", "term3"].forEach((t) => {
-              const m = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
-              const e = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
-              fullAcquiredTotal += (m !== "-" ? Number(m) : 0) + (e !== "-" ? Number(e) : 0);
+            coCurricularSubjects.forEach((sub) => {
+              const mData = studentMarks[sub.name] || {};
+              terms.forEach((t) => {
+                const mid = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
+                const ex = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
+                
+                if (mid !== "-") scoreAcquired += Number(mid);
+                if (ex !== "-") scoreAcquired += Number(ex);
+                scoreMaxTotal += sub.maxInt + sub.maxEx;
+              });
             });
-          });
+          }
 
-          fullMaxTotal += academicMaxTotal;
-          fullAcquiredTotal += academicAcquiredTotal;
-
-          const percentage = fullMaxTotal > 0 ? (fullAcquiredTotal / fullMaxTotal) * 100 : 0;
+          const percentage = scoreMaxTotal > 0 ? (scoreAcquired / scoreMaxTotal) * 100 : 0;
 
           return {
             ...student,
-            t1Acq: t1Metrics.acq, t1Max: t1Metrics.mx,
-            t2Acq: t2Metrics.acq, t2Max: t2Metrics.mx,
-            t3Acq: t3Metrics.acq, t3Max: t3Metrics.mx,
-            academicAcquiredTotal, academicMaxTotal,
-            fullAcquiredTotal, fullMaxTotal,
+            scoreAcquired,
+            scoreMaxTotal,
             percentage
           };
         });
 
-        // Calculate Rankings
+        // 5. Dynamic Rank Place calculation relative to the layout view
         processedStudents.sort((a, b) => b.percentage - a.percentage);
         let currentRank = 1;
         const ranked = processedStudents.map((st, idx, arr) => {
@@ -162,13 +159,13 @@ function ReportCardsEngine() {
         ranked.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         setStudents(ranked);
       } catch (err) {
-        console.error("Layout engine error:", err);
+        console.error("Layout initialization engine breakdown:", err);
       }
       setLoading(false);
     };
 
     fetchClassReports();
-  }, [activeClass]);
+  }, [activeClass, viewMode]);
 
   const handlePrintAll = () => {
     setIsPrintAllMode(true);
@@ -180,132 +177,136 @@ function ReportCardsEngine() {
     <div className="min-h-screen bg-gray-100 font-sans text-[11px] pb-20">
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
-          @page { size: A4 landscape; margin: 5mm 5mm 5mm 5mm; }
+          @page { size: A4 landscape; margin: 4mm 5mm 4mm 5mm; }
           body { background: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           .print-card {
             border: 3px solid black !important;
-            padding: 12px !important;
+            padding: 10px !important;
             margin: 0 auto !important;
             width: 100% !important;
             height: 198mm !important;
             page-break-after: always !important;
             page-break-inside: avoid !important;
             box-sizing: border-box !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
           }
           .print-teacher-line { border: none !important; text-decoration: none !important; }
           .print-hidden { display: none !important; }
         }
       `}} />
 
+      {/* Control Panel Dashboard */}
       <div className="bg-white border-b-2 p-4 shadow-sm print-hidden">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="font-black text-blue-900 uppercase tracking-wider text-sm">
-            Active Layout Stream Focus: {activeClass}
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div>
+            <label className="block text-[9px] font-black uppercase text-blue-900 mb-0.5">Select Report Sheet Layout View</label>
+            <select 
+              value={viewMode} 
+              onChange={(e) => setViewMode(e.target.value as ViewMode)} 
+              className="p-2 border-2 border-blue-900 rounded-xl font-black bg-white text-xs text-blue-900 min-w-[280px]"
+            >
+              <option value="full_term_report">Full Term Report Card View (MID / EXAM + Co-Curricular)</option>
+              <option value="midterm_report">Mid-Term Progress Report Card View (MID 1 / MID 2 Only)</option>
+            </select>
           </div>
-          <button onClick={handlePrintAll} className="bg-blue-900 text-white font-black text-xs uppercase px-6 py-2.5 rounded-xl shadow">
-            Print Landscape Grade Sheets (Single-Click) 🖨️
+          <button onClick={handlePrintAll} className="bg-blue-900 hover:bg-blue-950 text-white font-black text-xs uppercase px-6 py-3 rounded-xl shadow transition-all">
+            Print Complete Stream Class Sheet 🖨️
           </button>
         </div>
       </div>
 
-      <div className="max-w-[1100px] mx-auto p-4 space-y-12 mt-4">
+      <div className="max-w-[1140px] mx-auto p-4 space-y-12 mt-4">
         {students.map((student) => {
           const studentMarks = allMarks[student.id] || {};
           const isVisible = isPrintAllMode || activeStudentId === student.id || activeStudentId === null;
           if (!isVisible) return null;
 
-          const renderRows = (list: typeof academicSubjects) => {
-            return list.map((sub) => {
-              if (activeClass === "P6" && sub.name === "FRANÇAIS") return null;
-              
+          // Process term subaggregates cleanly for the dynamic footer calculations
+          const calculateTermTotals = (term: string) => {
+            let acq = 0;
+            let mx = 0;
+            
+            academicSubjects.forEach((sub) => {
+              if (activeClass === "P6" && sub.name === "FRANÇAIS") return;
               const mData = studentMarks[sub.name] || {};
-              
-              const t1_m = mData["term1_t1"] ?? mData["term1_m1"] ?? "-";
-              const t1_e = mData["term1_t2"] ?? mData["term1_m2"] ?? "-";
-              const t1_tot = (t1_m !== "-" || t1_e !== "-") ? (t1_m !== "-" ? Number(t1_m) : 0) + (t1_e !== "-" ? Number(t1_e) : 0) : "-";
+              const m1 = mData[`${term}_t1`] ?? mData[`${term}_m1`] ?? "-";
+              const m2 = mData[`${term}_t2`] ?? mData[`${term}_m2`] ?? "-";
 
-              const t2_m = mData["term2_t1"] ?? mData["term2_m1"] ?? "-";
-              const t2_e = mData["term2_t2"] ?? mData["term2_m2"] ?? "-";
-              const t2_tot = (t2_m !== "-" || t2_e !== "-") ? (t2_m !== "-" ? Number(t2_m) : 0) + (t2_e !== "-" ? Number(t2_e) : 0) : "-";
-
-              const t3_m = mData["term3_t1"] ?? mData["term3_m1"] ?? "-";
-              const t3_e = mData["term3_t2"] ?? mData["term3_m2"] ?? "-";
-              const t3_tot = (t3_m !== "-" || t3_e !== "-") ? (t3_m !== "-" ? Number(t3_m) : 0) + (t3_e !== "-" ? Number(t3_e) : 0) : "-";
-
-              const annualMax = (sub.maxInt + sub.maxEx) * 3;
-              const annualTot = ((t1_tot !== "-" ? t1_tot : 0) + (t2_tot !== "-" ? t2_tot : 0) + (t3_tot !== "-" ? t3_tot : 0));
-              const annualPct = annualTot > 0 ? ((annualTot / annualMax) * 100).toFixed(1) : "-";
-
-              return (
-                <tr key={sub.name} className="border-b border-black h-7 text-center">
-                  <td className="text-left font-black border-r-2 border-black pl-2 uppercase">{sub.name}</td>
-                  <td className="border-r border-black">{sub.maxInt}</td>
-                  <td className="border-r border-black">{sub.maxEx}</td>
-                  <td className="border-r-2 border-black bg-gray-50">{sub.maxInt + sub.maxEx}</td>
-                  
-                  {/* Term 1 */}
-                  <td className="border-r border-black font-serif">{t1_m}</td>
-                  <td className="border-r border-black font-serif">{t1_e}</td>
-                  <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t1_tot}</td>
-
-                  {/* Term 2 */}
-                  <td className="border-r border-black font-serif">{t2_m}</td>
-                  <td className="border-r border-black font-serif">{t2_e}</td>
-                  <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t2_tot}</td>
-
-                  {/* Term 3 */}
-                  <td className="border-r border-black font-serif">{t3_m}</td>
-                  <td className="border-r border-black font-serif">{t3_e}</td>
-                  <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t3_tot}</td>
-
-                  {/* Annual Summary Columns */}
-                  <td className="border-r border-black bg-gray-100">{annualMax}</td>
-                  <td className="border-r border-black font-serif font-bold text-blue-900">{annualTot || "-"}</td>
-                  <td className="font-serif font-bold text-blue-900">{annualPct !== "-" ? `${annualPct}%` : "-"}</td>
-                </tr>
-              );
+              if (viewMode === "midterm_report") {
+                if (m1 !== "-") acq += Number(m1);
+                if (m2 !== "-") acq += Number(m2);
+                mx += sub.maxInt + sub.maxEx;
+              } else {
+                if (m1 !== "-") acq += Number(m1);
+                if (m2 !== "-") acq += Number(m2);
+                mx += sub.maxInt + sub.maxEx;
+              }
             });
+
+            if (viewMode === "full_term_report") {
+              coCurricularSubjects.forEach((sub) => {
+                const mData = studentMarks[sub.name] || {};
+                const m1 = mData[`${term}_t1`] ?? mData[`${term}_m1`] ?? "-";
+                const m2 = mData[`${term}_t2`] ?? mData[`${term}_m2`] ?? "-";
+                if (m1 !== "-") acq += Number(m1);
+                if (m2 !== "-") acq += Number(m2);
+                mx += sub.maxInt + sub.maxEx;
+              });
+            }
+
+            return { acq, mx };
           };
+
+          const t1Data = calculateTermTotals("term1");
+          const t2Data = calculateTermTotals("term2");
+          const t3Data = calculateTermTotals("term3");
 
           return (
             <div key={student.id} className="bg-white border-[3px] border-black p-4 print-card flex flex-col justify-between shadow-sm">
               <div>
-                {/* Meta Matrix Banner Block */}
-                <div className="flex justify-between items-center border-b-2 border-black pb-2 mb-2 font-black">
-                  <div className="uppercase">ANNEE: <span className="text-blue-900 ml-1 font-serif">2026</span></div>
-                  <div className="uppercase">NOM DU STAGIAIRE / STUDENT: <span className="text-blue-900 ml-1 text-xs">{student.name}</span></div>
+                
+                {/* Meta Layout Header Panel */}
+                <div className="flex justify-between items-center border-b-2 border-black pb-2 mb-2 font-black text-[10px]">
+                  <div className="uppercase">ANNEE: <span className="text-blue-900 font-serif">2026</span></div>
+                  <div className="uppercase">NOM / STUDENT: <span className="text-blue-900 ml-1 text-xs">{student.name}</span></div>
                   <div className="uppercase">CLASSE: <span className="text-blue-900 ml-1">{student.class}</span></div>
-                  <div className="uppercase">Nombre d'élèves: <span className="text-blue-900 ml-1 font-serif">{students.length}</span></div>
+                  <div className="uppercase">Nombre d'élèves: <span className="text-blue-900 font-serif ml-1">{students.length}</span></div>
                 </div>
 
-                {/* Main Landscape Ledger Table */}
+                {/* Main Landscape Ledger Matrix */}
                 <table className="w-full border-collapse border-[3px] border-black text-[11px] font-black">
                   <thead>
-                    {/* Level 1 Group Header Row */}
+                    {/* Header Row Level 1 */}
                     <tr className="bg-gray-100 border-b-2 border-black h-6">
-                      <th colSpan={4} className="border-r-2 border-black text-left pl-2">MATIÈRES / SUBJECTS</th>
+                      <th colSpan={4} className="border-r-2 border-black text-left pl-2">
+                        {viewMode === "midterm_report" ? "SUBJECTS (MID-TERM EVALUATION TRACK)" : "MATIÈRES / SUBJECTS"}
+                      </th>
                       <th colSpan={3} className="border-r-2 border-black text-center tracking-wider text-[10px]">1st TERM</th>
                       <th colSpan={3} className="border-r-2 border-black text-center tracking-wider text-[10px]">2nd TERM</th>
                       <th colSpan={3} className="border-r-2 border-black text-center tracking-wider text-[10px]">3rd TERM</th>
-                      <th colSpan={3} className="text-center tracking-wider text-[10px]">ANNUAL TOTAL</th>
+                      <th colSpan={3} className="text-center tracking-wider text-[10px]">TOTAL ANNUEL / ANNUAL TOTAL</th>
                     </tr>
-                    {/* Level 2 Subtitle Column Identifiers */}
+                    
+                    {/* Header Row Level 2 */}
                     <tr className="bg-gray-50 border-b-2 border-black h-6 text-center text-[10px]">
                       <th className="border-r-2 border-black text-left pl-2 w-[22%]">MATIÈRES</th>
                       <th className="border-r border-black w-[5%]">Max INT</th>
                       <th className="border-r border-black w-[5%]">Max EX</th>
                       <th className="border-r-2 border-black w-[6%] bg-gray-100">Max Tot</th>
                       
-                      <th className="border-r border-black w-[5%]">MID</th>
-                      <th className="border-r border-black w-[5%]">EXAM</th>
+                      {/* Sub columns adapt purely to match 1_4.png configurations */}
+                      <th className="border-r border-black w-[5%]">{viewMode === "midterm_report" ? "MID 1" : "MID"}</th>
+                      <th className="border-r border-black w-[5%]">{viewMode === "midterm_report" ? "MID 2" : "EXAM"}</th>
                       <th className="border-r-2 border-black w-[6%] bg-gray-100">Total</th>
 
-                      <th className="border-r border-black w-[5%]">MID</th>
-                      <th className="border-r border-black w-[5%]">EXAM</th>
+                      <th className="border-r border-black w-[5%]">{viewMode === "midterm_report" ? "MID 1" : "MID"}</th>
+                      <th className="border-r border-black w-[5%]">{viewMode === "midterm_report" ? "MID 2" : "EXAM"}</th>
                       <th className="border-r-2 border-black w-[6%] bg-gray-100">Total</th>
 
-                      <th className="border-r border-black w-[5%]">MID</th>
-                      <th className="border-r border-black w-[5%]">EXAM</th>
+                      <th className="border-r border-black w-[5%]">{viewMode === "midterm_report" ? "MID 1" : "MID"}</th>
+                      <th className="border-r border-black w-[5%]">{viewMode === "midterm_report" ? "MID 2" : "EXAM"}</th>
                       <th className="border-r-2 border-black w-[6%] bg-gray-100">Total</th>
 
                       <th className="border-r border-black w-[6%] bg-gray-100">Total Max</th>
@@ -315,51 +316,147 @@ function ReportCardsEngine() {
                   </thead>
                   
                   <tbody>
-                    {/* Section A: Academic Track */}
-                    {renderRows(academicSubjects)}
+                    {/* PART 1: Academic Track */}
+                    {academicSubjects.map((sub) => {
+                      if (activeClass === "P6" && sub.name === "FRANÇAIS") return null;
 
-                    {/* Section B: Co-Curricula Segment Header Banner */}
-                    <tr className="bg-gray-100 border-t-2 border-b-2 border-black h-6 font-black text-center">
-                      <td colSpan={19} className="tracking-widest text-[10px] uppercase text-gray-800">
-                        CO-CURRICULA ACTIVITIES
-                      </td>
-                    </tr>
+                      const mData = studentMarks[sub.name] || {};
+                      
+                      // Terms calculation mapping
+                      const mapTermFields = (t: string) => {
+                        const m1 = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
+                        const m2 = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
+                        const total = (m1 !== "-" || m2 !== "-") ? (m1 !== "-" ? Number(m1) : 0) + (m2 !== "-" ? Number(m2) : 0) : "-";
+                        return { m1, m2, total };
+                      };
 
-                    {/* Section C: Co-Curricula Data Rows */}
-                    {renderRows(coCurricularSubjects)}
+                      const t1 = mapTermFields("term1");
+                      const t2 = mapTermFields("term2");
+                      const t3 = mapTermFields("term3");
 
-                    {/* Section D: Aggregate Data Footers */}
-                    <tr className="border-t-2 border-b border-black h-7 bg-gray-50 text-center font-black">
+                      const maxRowCombined = (sub.maxInt + sub.maxEx) * 3;
+                      const acquiredRowCombined = ((t1.total !== "-" ? t1.total : 0) + (t2.total !== "-" ? t2.total : 0) + (t3.total !== "-" ? t3.total : 0));
+                      const percentageRowCombined = acquiredRowCombined > 0 ? ((acquiredRowCombined / maxRowCombined) * 100).toFixed(1) : "-";
+
+                      return (
+                        <tr key={sub.name} className="border-b border-black h-7 text-center">
+                          <td className="text-left font-black border-r-2 border-black pl-2 uppercase text-blue-950">{sub.name}</td>
+                          <td className="border-r border-black text-gray-400 font-serif">{sub.maxInt}</td>
+                          <td className="border-r-2 border-black text-gray-400 font-serif">{sub.maxEx}</td>
+                          <td className="border-r-2 border-black bg-gray-50">{sub.maxInt + sub.maxEx}</td>
+                          
+                          {/* Term 1 columns */}
+                          <td className="border-r border-black font-serif">{t1.m1}</td>
+                          <td className="border-r border-black font-serif">{t1.m2}</td>
+                          <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t1.total}</td>
+
+                          {/* Term 2 columns */}
+                          <td className="border-r border-black font-serif">{t2.m1}</td>
+                          <td className="border-r border-black font-serif">{t2.m2}</td>
+                          <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t2.total}</td>
+
+                          {/* Term 3 columns */}
+                          <td className="border-r border-black font-serif">{t3.m1}</td>
+                          <td className="border-r border-black font-serif">{t3.m2}</td>
+                          <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t3.total}</td>
+
+                          {/* Annual Fields */}
+                          <td className="border-r border-black bg-gray-100 font-serif">{maxRowCombined}</td>
+                          <td className="border-r border-black font-serif font-bold text-blue-950">{acquiredRowCombined || "-"}</td>
+                          <td className="font-serif font-bold text-blue-950">{percentageRowCombined !== "-" ? `${percentageRowCombined}%` : "-"}</td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* PART 2 Section Splitter Logic block: Rendered ONLY in Full-Term mode layout */}
+                    {viewMode === "full_term_report" && (
+                      <>
+                        <tr className="bg-gray-100 border-t-2 border-b-2 border-black h-6 font-black text-center">
+                          <td colSpan={19} className="tracking-widest text-[10px] uppercase text-gray-800">
+                            CO-CURRICULA ACTIVITIES
+                          </td>
+                        </tr>
+
+                        {coCurricularSubjects.map((sub) => {
+                          const mData = studentMarks[sub.name] || {};
+                          
+                          const mapTermFields = (t: string) => {
+                            const m1 = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
+                            const m2 = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
+                            const total = (m1 !== "-" || m2 !== "-") ? (m1 !== "-" ? Number(m1) : 0) + (m2 !== "-" ? Number(m2) : 0) : "-";
+                            return { m1, m2, total };
+                          };
+
+                          const t1 = mapTermFields("term1");
+                          const t2 = mapTermFields("term2");
+                          const t3 = mapTermFields("term3");
+
+                          const maxRowCombined = (sub.maxInt + sub.maxEx) * 3;
+                          const acquiredRowCombined = ((t1.total !== "-" ? t1.total : 0) + (t2.total !== "-" ? t2.total : 0) + (t3.total !== "-" ? t3.total : 0));
+                          const percentageRowCombined = acquiredRowCombined > 0 ? ((acquiredRowCombined / maxRowCombined) * 100).toFixed(1) : "-";
+
+                          return (
+                            <tr key={sub.name} className="border-b border-black h-7 text-center">
+                              <td className="text-left font-black border-r-2 border-black pl-2 uppercase text-gray-700">{sub.name}</td>
+                              <td className="border-r border-black text-gray-400 font-serif">{sub.maxInt}</td>
+                              <td className="border-r-2 border-black text-gray-400 font-serif">{sub.maxEx}</td>
+                              <td className="border-r-2 border-black bg-gray-50">{sub.maxInt + sub.maxEx}</td>
+                              
+                              <td className="border-r border-black font-serif">{t1.m1}</td>
+                              <td className="border-r border-black font-serif">{t1.m2}</td>
+                              <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t1.total}</td>
+
+                              <td className="border-r border-black font-serif">{t2.m1}</td>
+                              <td className="border-r border-black font-serif">{t2.m2}</td>
+                              <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t2.total}</td>
+
+                              <td className="border-r border-black font-serif">{t3.m1}</td>
+                              <td className="border-r border-black font-serif">{t3.m2}</td>
+                              <td className="border-r-2 border-black bg-gray-50 font-serif font-bold">{t3.total}</td>
+
+                              <td className="border-r border-black bg-gray-100 font-serif">{maxRowCombined}</td>
+                              <td className="border-r border-black font-serif font-bold text-gray-800">{acquiredRowCombined || "-"}</td>
+                              <td className="font-serif font-bold text-gray-800">{percentageRowCombined !== "-" ? `${percentageRowCombined}%` : "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </>
+                    )}
+
+                    {/* TOTAL GENERAL FOOTER ROWS */}
+                    <tr className="border-t-2 border-b border-black h-7 bg-gray-50/80 text-center font-black">
                       <td className="text-left pl-2 border-r-2 border-black text-blue-950 uppercase">TOTAL GENERAL</td>
-                      <td className="border-r border-black">285</td>
-                      <td className="border-r border-black">285</td>
-                      <td className="border-r-2 border-black font-serif">570</td>
+                      <td className="border-r border-black text-gray-400 font-serif">{viewMode === "midterm_report" ? "275" : "285"}</td>
+                      <td className="border-r border-black text-gray-400 font-serif">{viewMode === "midterm_report" ? "275" : "285"}</td>
+                      <td className="border-r-2 border-black bg-gray-100/70 font-serif">{viewMode === "midterm_report" ? "550" : "570"}</td>
                       
-                      <td colSpan={3} className="border-r-2 border-black font-serif text-xs text-blue-950">{student.t1Acq || "-"} <span className="text-[9px] text-gray-400 font-normal">/ {student.t1Max}</span></td>
-                      <td colSpan={3} className="border-r-2 border-black font-serif text-xs text-blue-950">{student.t2Acq || "-"} <span className="text-[9px] text-gray-400 font-normal">/ {student.t2Max}</span></td>
-                      <td colSpan={3} className="border-r-2 border-black font-serif text-xs text-blue-950">{student.t3Acq || "-"} <span className="text-[9px] text-gray-400 font-normal">/ {student.t3Max}</span></td>
+                      <td colSpan={3} className="border-r-2 border-black font-serif text-blue-950">{t1Data.acq || "-"} <span className="text-[9px] text-gray-400 font-normal">/ {t1Data.mx}</span></td>
+                      <td colSpan={3} className="border-r-2 border-black font-serif text-blue-950">{t2Data.acq || "-"} <span className="text-[9px] text-gray-400 font-normal">/ {t2Data.mx}</span></td>
+                      <td colSpan={3} className="border-r-2 border-black font-serif text-blue-950">{t3Data.acq || "-"} <span className="text-[9px] text-gray-400 font-normal">/ {t3Data.mx}</span></td>
                       
-                      <td className="border-r border-black bg-gray-100 font-serif">{student.fullMaxTotal}</td>
-                      <td className="border-r border-black font-serif text-blue-900 text-xs">{student.fullAcquiredTotal}</td>
-                      <td className="font-serif text-blue-900 text-xs">{student.percentage.toFixed(1)}%</td>
+                      <td className="border-r border-black bg-gray-100 font-serif">{student.scoreMaxTotal}</td>
+                      <td className="border-r border-black font-serif text-blue-900">{student.scoreAcquired}</td>
+                      <td className="font-serif text-blue-900">{student.percentage.toFixed(1)}%</td>
                     </tr>
 
+                    {/* POURCENTAGE FOOTER ROW */}
                     <tr className="border-b border-black h-7 text-center font-black">
                       <td className="text-left pl-2 border-r-2 border-black uppercase">POURCENTAGE</td>
-                      <td colSpan={3} className="border-r-2 border-black bg-gray-100">-</td>
-                      <td colSpan={3} className="border-r-2 border-black font-serif">{student.t1Max > 0 ? `${((student.t1Acq/student.t1Max)*100).toFixed(1)}%` : "-"}</td>
-                      <td colSpan={3} className="border-r-2 border-black font-serif">{student.t2Max > 0 ? `${((student.t2Acq/student.t2Max)*100).toFixed(1)}%` : "-"}</td>
-                      <td colSpan={3} className="border-r-2 border-black font-serif">{student.t3Max > 0 ? `${((student.t3Acq/student.t3Max)*100).toFixed(1)}%` : "-"}</td>
-                      <td colSpan={3} className="bg-gray-50 font-serif font-bold text-blue-900">{student.percentage.toFixed(1)}%</td>
+                      <td colSpan={3} className="border-r-2 border-black bg-gray-100 text-gray-400">-</td>
+                      <td colSpan={3} className="border-r-2 border-black font-serif text-blue-950">{t1Data.mx > 0 ? `${((t1Data.acq / t1Data.mx) * 100).toFixed(1)}%` : "-"}</td>
+                      <td colSpan={3} className="border-r-2 border-black font-serif text-blue-950">{t2Data.mx > 0 ? `${((t2Data.acq / t2Data.mx) * 100).toFixed(1)}%` : "-"}</td>
+                      <td colSpan={3} className="border-r-2 border-black font-serif text-blue-950">{t3Data.mx > 0 ? `${((t3Data.acq / t3Data.mx) * 100).toFixed(1)}%` : "-"}</td>
+                      <td colSpan={3} className="bg-gray-100 font-serif font-bold text-blue-900">{student.percentage.toFixed(1)}%</td>
                     </tr>
 
+                    {/* PLACE / RANK FOOTER ROW */}
                     <tr className="h-7 text-center font-black">
                       <td className="text-left pl-2 border-r-2 border-black uppercase">PLACE / RANK</td>
-                      <td colSpan={3} className="border-r-2 border-black bg-gray-100">-</td>
-                      <td colSpan={3} className="border-r-2 border-black uppercase font-serif text-green-800">SUR {students.length}</td>
-                      <td colSpan={3} className="border-r-2 border-black uppercase font-serif text-green-800">SUR {students.length}</td>
-                      <td colSpan={3} className="border-r-2 border-black uppercase font-serif text-green-800">SUR {students.length}</td>
-                      <td colSpan={3} className="bg-green-50 text-green-900 font-serif font-bold text-xs">
+                      <td colSpan={3} className="border-r-2 border-black bg-gray-100 text-gray-400">-</td>
+                      <td colSpan={3} className="border-r-2 border-black text-green-800 font-serif uppercase">SUR {students.length}</td>
+                      <td colSpan={3} className="border-r-2 border-black text-green-800 font-serif uppercase">SUR {students.length}</td>
+                      <td colSpan={3} className="border-r-2 border-black text-green-800 font-serif uppercase">SUR {students.length}</td>
+                      <td colSpan={3} className="bg-green-50 text-green-900 font-serif font-bold text-xs uppercase">
                         {student.position} SUR {students.length}
                       </td>
                     </tr>
@@ -367,18 +464,19 @@ function ReportCardsEngine() {
                 </table>
               </div>
 
-              {/* Verified Underline-Free Signature Segment Block */}
-              <div className="flex justify-between items-end mt-4 font-black text-[10px]">
-                <div className="w-[30%]">
-                  <span className="text-gray-400 uppercase tracking-wider block mb-1">Class Teacher Name:</span>
+              {/* Verified Underline-Free Signature Segment Section */}
+              <div className="flex justify-between items-end mt-3 font-black text-[10px]">
+                <div>
+                  <span className="text-gray-400 uppercase tracking-wider block mb-0.5">Class Teacher Name:</span>
                   <div className="text-xs uppercase text-blue-900 tracking-wide font-black print-teacher-line">
                     {classTeacherName || "NOT ASSIGNED"}
                   </div>
                 </div>
-                <div className="border border-dashed border-gray-400 rounded px-6 py-2 bg-gray-50 text-gray-400 uppercase tracking-widest text-[9px]">
-                  School Stamp Area
+                <div className="border border-dashed border-gray-400 rounded px-5 py-1.5 bg-gray-50 text-gray-400 uppercase tracking-widest text-[8px]">
+                  School Stamp Block Area
                 </div>
               </div>
+
             </div>
           );
         })}
@@ -389,7 +487,7 @@ function ReportCardsEngine() {
 
 export default function ReportCardsPage() {
   return (
-    <Suspense fallback={<div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">Initialising Grade Sheet Array Engine...</div>}>
+    <Suspense fallback={<div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">Loading Filtered Report Matrices...</div>}>
       <ReportCardsEngine />
     </Suspense>
   );

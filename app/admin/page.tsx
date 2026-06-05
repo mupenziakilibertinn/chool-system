@@ -3,7 +3,6 @@ import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, arrayUnion, setDoc } from "firebase/firestore";
 
-// KEEPING NATURE: Clean variables matching your book schema exactly
 const availableClasses = ["P1", "P2", "P3", "P4", "P5", "P6"];
 const subjectsList = ["Mathematics", "Kinyarwanda", "English", "SET", "SRE", "French", "Sports", "Creative Arts"];
 
@@ -13,16 +12,17 @@ export default function UltimateAdminTerminal() {
   const [adminPassword, setAdminPassword] = useState("");
   const [authError, setAuthError] = useState("");
   
-  // Teacher Accountability Tracking State
-  const [assignedClassMaster, setAssignedClassMaster] = useState<string | null>(null);
-  const [loggedInUserTitle, setLoggedInUserTitle] = useState("System Administrator");
-  
-  // Data Pipeline Matrix States
+  // System State Management
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
+  const [allMarks, setAllMarks] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "printEngine">("overview");
   
+  // Print Engine Filter States
+  const [printFilterClass, setPrintFilterClass] = useState("P1");
+  const [printFilterTerm, setPrintFilterTerm] = useState("term1");
+
   // Creation Form Binder States
   const [studentForm, setStudentForm] = useState({ name: "", class: "P1" });
   const [teacherForm, setTeacherForm] = useState({ name: "", email: "", password: "", classTeacherOf: "" });
@@ -33,7 +33,7 @@ export default function UltimateAdminTerminal() {
   const [allocationClass, setAllocationClass] = useState("P1");
   const [allocationSubject, setAllocationSubject] = useState("Mathematics");
 
-  // EXTENSION: Profile Editor Modal state matching natural style sheet rules
+  // Profile Editor Modal State
   const [editingTeacher, setEditingTeacher] = useState<any>(null);
 
   useEffect(() => {
@@ -44,7 +44,9 @@ export default function UltimateAdminTerminal() {
 
   const handleAdminGateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === "admin12345") {
+    const enteredKey = adminPassword.trim().toLowerCase();
+    
+    if (enteredKey === "admin12345") {
       setIsAuthenticated(true);
       setAuthError("");
     } else {
@@ -55,13 +57,20 @@ export default function UltimateAdminTerminal() {
   const bootstrapAdminPipeline = async () => {
     setLoading(true);
     try {
+      // 1. Fetch Students
       const sSnap = await getDocs(collection(db, "students"));
       setStudents(sSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       
+      // 2. Fetch Teachers
       const tSnap = await getDocs(collection(db, "teachers"));
       setTeachers(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+      // 3. Fetch All Student Marks Records for the School Owners and Admin Overview
+      const mSnap = await getDocs(collection(db, "marks"));
+      setAllMarks(mSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
     } catch (err) {
-      console.error(err);
+      console.error("Error bootstrapping administrative database pipeline:", err);
     }
     setLoading(false);
   };
@@ -85,9 +94,10 @@ export default function UltimateAdminTerminal() {
     e.preventDefault();
     if (!teacherForm.name.trim() || !teacherForm.email.trim()) return;
     try {
+      const customDocId = teacherForm.email.trim().toLowerCase();
       const teacherPayload: any = {
         name: teacherForm.name.trim().toUpperCase(),
-        email: teacherForm.email.trim().toLowerCase(),
+        email: customDocId,
         password: teacherForm.password.trim(),
         allocations: []
       };
@@ -95,18 +105,21 @@ export default function UltimateAdminTerminal() {
         teacherPayload.classTeacherOf = teacherForm.classTeacherOf;
       }
       
-      const customDocId = teacherForm.email.trim().toLowerCase();
       await setDoc(doc(db, "teachers", customDocId), teacherPayload);
-      
       setTeacherForm({ name: "", email: "", password: "", classTeacherOf: "" });
       bootstrapAdminPipeline();
+      alert("✅ NEW TEACHER PROVISIONED SUCCESSFULLY.");
     } catch (err) {
       console.error(err);
     }
   };
 
+  // FIXED: Now uses the accurate Firestore document reference ID correctly to bind subjects 
   const handleBindLessonAllocation = async () => {
-    if (!selectedAllocationTeacherId) return;
+    if (!selectedAllocationTeacherId) {
+      alert("Please choose a valid instructor profile target first.");
+      return;
+    }
     try {
       const docRef = doc(db, "teachers", selectedAllocationTeacherId);
       await updateDoc(docRef, {
@@ -118,7 +131,8 @@ export default function UltimateAdminTerminal() {
       bootstrapAdminPipeline();
       alert("✅ LESSON ASSIGNMENT BOUND SUCCESSFULLY TO TARGET TEACHER INSTRUCTOR PROFILE.");
     } catch (err) {
-      console.error(err);
+      console.error("Error writing lesson assignment data allocation map:", err);
+      alert("Failed to assign subject allocation rule entry.");
     }
   };
 
@@ -161,13 +175,23 @@ export default function UltimateAdminTerminal() {
   };
 
   const handleDeleteTeacher = async (id: string) => {
-    if (!confirm("🚨 Proceeding will clear this instructor access token configuration permanently from database records.")) return;
+    if (!confirm("🚨 Proceeding will clear this instructor permanent database records.")) return;
     try {
       await deleteDoc(doc(db, "teachers", id));
       bootstrapAdminPipeline();
     } catch (err) {
       console.error(err);
     }
+  };
+
+  // Helper calculation function to pull specific test marks out of Firestore records safely
+  const extractScore = (studentId: string, subject: string, field: string) => {
+    const docId = `${studentId}_${printFilterTerm}`;
+    const record = allMarks.find(m => m.id === docId);
+    if (record && record[subject] && record[subject][field] !== undefined) {
+      return record[subject][field];
+    }
+    return "—";
   };
 
   if (!isAuthenticated) {
@@ -180,13 +204,13 @@ export default function UltimateAdminTerminal() {
           </div>
           {authError && <p className="text-rose-600 font-black text-center uppercase tracking-wide bg-rose-50 border border-rose-200 p-2 rounded-lg">{authError}</p>}
           <div className="space-y-1">
-            <label className="block text-[9px] font-black uppercase text-slate-400">Master Administrator Terminal Key</label>
+            <label className="block text-[9px] font-black uppercase text-slate-700">Master Administrator Terminal Key</label>
             <input 
-              type="password" 
+              type="text" 
               value={adminPassword}
               onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="••••••••••••"
-              className="w-full border-2 border-slate-900 p-3 rounded-xl font-bold tracking-widest bg-slate-50 text-center outline-none focus:bg-white"
+              placeholder="Enter admin12345"
+              className="w-full border-2 border-slate-900 p-3 rounded-xl font-black text-xs bg-slate-100 text-slate-950 text-center outline-none focus:bg-white"
             />
           </div>
           <button type="submit" className="w-full bg-slate-950 text-white font-black py-3.5 rounded-xl uppercase tracking-wider text-[10px] hover:bg-slate-800 shadow">
@@ -200,12 +224,12 @@ export default function UltimateAdminTerminal() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-xs pb-32 text-slate-900">
       
-      {/* FIXED HEADER MATRIX: Using safe window routing logic to avoid Link undefined error */}
+      {/* HEADER MATRIX */}
       <div className="bg-white border-b border-slate-200 p-4 font-black shadow-sm">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <div className="text-[9px] text-blue-600 uppercase tracking-widest">MASTER CONTROL NODE</div>
-            <h1 className="text-sm uppercase tracking-wide">{loggedInUserTitle} — CENTRAL ENGINE</h1>
+            <h1 className="text-sm uppercase tracking-wide">SYSTEM ADMINISTRATOR — CENTRAL ENGINE</h1>
           </div>
           <div className="flex gap-2 flex-wrap">
             <button 
@@ -223,7 +247,7 @@ export default function UltimateAdminTerminal() {
 
       <div className="max-w-6xl mx-auto p-4 mt-4 space-y-6">
         
-        {/* TABS SELECTOR CONTAINER BAR */}
+        {/* TABS SELECTOR BAR */}
         <div className="flex bg-white p-1 border rounded-xl shadow-xs max-w-md font-black">
           {(["overview", "students", "teachers", "printEngine"] as const).map(tab => (
             <button
@@ -231,7 +255,7 @@ export default function UltimateAdminTerminal() {
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-2 rounded-lg text-[9px] uppercase tracking-wider font-black transition-all ${activeTab === tab ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
             >
-              {tab}
+              {tab === "printEngine" ? "Report Cards 📋" : tab}
             </button>
           ))}
         </div>
@@ -328,7 +352,7 @@ export default function UltimateAdminTerminal() {
               </div>
               <div className="divide-y divide-slate-100">
                 {students.filter(s => s.class === activeFilteringClass).length === 0 ? (
-                  <p className="text-center py-8 text-xs font-bold text-slate-400 uppercase tracking-wider">No student index entries discovered contextually linked to Stream {activeFilteringClass}</p>
+                  <p className="text-center py-8 text-xs font-bold text-slate-400 uppercase tracking-wider">No student entries discovered contextually linked to Stream {activeFilteringClass}</p>
                 ) : (
                   students.filter(s => s.class === activeFilteringClass).map((st) => (
                     <div key={st.id} className="p-4 flex justify-between items-center hover:bg-slate-50/30 transition-colors">
@@ -395,7 +419,7 @@ export default function UltimateAdminTerminal() {
                         </div>
                         <p className="text-[10px] text-slate-500 font-mono font-bold lowercase">{t.email} • KEY: <span className="text-rose-700 font-black">{t.password || "N/A"}</span></p>
                         
-                        {/* LESSON ALLOCATION ROW DISPLAY CHIPS */}
+                        {/* LESSON ALLOCATION Display Chips */}
                         <div className="flex flex-wrap gap-1 mt-2">
                           {t.allocations && t.allocations.length > 0 ? (
                             t.allocations.map((a: any, idx: number) => (
@@ -405,7 +429,7 @@ export default function UltimateAdminTerminal() {
                               </span>
                             ))
                           ) : (
-                            <span className="text-[9px] text-slate-300 italic font-normal uppercase">No lesson allocations assigned to path maps</span>
+                            <span className="text-[9px] text-slate-300 italic font-normal uppercase">No lesson allocations assigned</span>
                           )}
                         </div>
                       </div>
@@ -427,12 +451,91 @@ export default function UltimateAdminTerminal() {
           </div>
         )}
 
-        {/* ======================================= TAB 4: PRINT ENGINE ======================================= */}
+        {/* ======================================= TAB 4: LIVE REPORT CARDS PRINT ENGINE ======================================= */}
         {activeTab === "printEngine" && (
-          <div className="bg-white border p-6 rounded-2xl shadow-xs text-center font-black py-16 animate-fade-in">
-            <span className="text-3xl">🖨️</span>
-            <h3 className="text-xs font-black uppercase tracking-wide text-slate-800 mt-3">Bulk Report Sheet Card Rendering Engine Node</h3>
-            <p className="text-[10px] text-slate-400 max-w-sm mx-auto mt-1 uppercase">Ready to batch compile student evaluations from active storage clusters</p>
+          <div className="space-y-6 animate-fade-in font-black">
+            <div className="bg-white border p-5 rounded-2xl shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-3">
+                <div>
+                  <h3 className="text-xs uppercase text-slate-900 font-black">🏫 SCHOOL OWNERS & ADMIN MASTER PRINT ENGINE</h3>
+                  <p className="text-[9px] text-slate-400 mt-0.5 uppercase">Review comprehensive student marks registered across all subjects</p>
+                </div>
+                <div className="flex gap-2 flex-wrap w-full sm:w-auto">
+                  <select 
+                    value={printFilterClass} 
+                    onChange={(e) => setPrintFilterClass(e.target.value)} 
+                    className="p-2 border-2 rounded-xl bg-white text-[10px] font-black uppercase flex-1 sm:flex-none"
+                  >
+                    {availableClasses.map(c => <option key={c} value={c}>Class Stream {c}</option>)}
+                  </select>
+                  <select 
+                    value={printFilterTerm} 
+                    onChange={(e) => setPrintFilterTerm(e.target.value)} 
+                    className="p-2 border-2 rounded-xl bg-white text-[10px] font-black uppercase flex-1 sm:flex-none"
+                  >
+                    <option value="term1">Term 1 Evaluation</option>
+                    <option value="term2">Term 2 Evaluation</option>
+                    <option value="term3">Term 3 Evaluation</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* REPORT CARDS DATATABLE */}
+              <div className="overflow-x-auto border rounded-xl bg-white">
+                <table className="w-full text-left border-collapse text-[10px]">
+                  <thead>
+                    <tr className="bg-slate-900 text-white uppercase tracking-wider text-[9px] font-black">
+                      <th className="p-3 border-b border-r border-slate-700">Student Name</th>
+                      {subjectsList.map(subj => (
+                        <th key={subj} className="p-3 border-b border-r border-slate-700 text-center col-span-3 min-w-[110px]">
+                          {subj} <div className="text-[8px] font-normal text-slate-300 mt-0.5">(CAT / EXAM / TOT)</div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {students.filter(s => s.class === printFilterClass).length === 0 ? (
+                      <tr>
+                        <td colSpan={subjectsList.length + 1} className="text-center py-12 text-slate-400 font-bold uppercase tracking-wider">
+                          No student records discovered for Stream {printFilterClass}
+                        </td>
+                      </tr>
+                    ) : (
+                      students.filter(s => s.class === printFilterClass).map(student => (
+                        <tr key={student.id} className="hover:bg-slate-50/50 font-medium">
+                          <td className="p-3 border-r font-black uppercase bg-slate-50 text-slate-900">
+                            {student.name}
+                          </td>
+                          {subjectsList.map(subj => {
+                            const cat = extractScore(student.id, subj, "cat");
+                            const exam = extractScore(student.id, subj, "exam");
+                            const tot = extractScore(student.id, subj, "total");
+                            return (
+                              <td key={subj} className="p-2 border-r text-center font-mono font-bold text-slate-800">
+                                <span className="text-blue-700">{cat}</span>
+                                <span className="text-slate-300 mx-1">/</span>
+                                <span className="text-emerald-700">{exam}</span>
+                                <span className="text-slate-300 mx-1">/</span>
+                                <span className="bg-slate-100 px-1 rounded font-black text-slate-950">{tot}</span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button 
+                  onClick={() => window.print()} 
+                  className="bg-slate-950 text-white px-5 py-2.5 rounded-xl uppercase text-[10px] font-black tracking-wider hover:bg-slate-800 transition-all shadow"
+                >
+                  Print Compiled Ledger Sheets 🖨️
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

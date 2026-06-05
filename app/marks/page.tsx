@@ -24,7 +24,7 @@ export default function MarksEntryPage() {
     if (typeof window !== "undefined") {
       const savedEmail = localStorage.getItem("teacherEmail");
       if (savedEmail) {
-        setUserEmail(savedEmail.trim().toLowerCase());
+        userEmail.trim().toLowerCase();
         verifyTeacherPermission(savedEmail.trim().toLowerCase());
       } else {
         setAuthLoading(false);
@@ -139,7 +139,7 @@ export default function MarksEntryPage() {
       ...prev,
       [studentId]: {
         ...prev[studentId],
-        [`${selectedTerm}_${activityKey}_${typeKey}`]: value
+        [`${selectedTerm}_activityKey_typeKey`]: value
       }
     }));
   };
@@ -168,6 +168,34 @@ export default function MarksEntryPage() {
     }
   };
 
+  // New Dedicated Excel Paste Processing Engine for Co-Curricular Data Columns
+  const handleCoCurricularExcelPaste = (e: React.ClipboardEvent<HTMLInputElement>, studentIndex: number, activityKey: string, typeKey: string) => {
+    e.preventDefault();
+    setValidationError(null);
+    const pastedData = e.clipboardData.getData("text");
+    const rows = pastedData.split(/\r?\n/).map(row => row.trim()).filter(row => row !== "");
+    
+    if (rows.length > 0) {
+      const hasBadValues = rows.some(val => val !== "" && (Number(val) > 5 || Number(val) < 0));
+      if (hasBadValues) {
+        setValidationError(`  🚫  🚫 PASTE BLOCKED: One or more values inside your Co-Curricular column exceeds the maximum allowed threshold of 5 marks.`);
+        return;
+      }
+      
+      const updatedCoMarks = { ...coCurricularMarks };
+      const storageKey = `${selectedTerm}_${activityKey}_${typeKey}`;
+
+      rows.forEach((value, offset) => {
+        const targetStudent = students[studentIndex + offset];
+        if (targetStudent) {
+          if (!updatedCoMarks[targetStudent.id]) updatedCoMarks[targetStudent.id] = {};
+          updatedCoMarks[targetStudent.id][storageKey] = value;
+        }
+      });
+      setCoCurricularMarks(updatedCoMarks);
+    }
+  };
+
   const handleColumnAction = async (assessmentKey: string, actionType: "copy" | "cut" | "clear") => {
     setValidationError(null);
     const targetScores = students.map(student => {
@@ -193,7 +221,6 @@ export default function MarksEntryPage() {
     }
   };
 
-  // Dedicated Action Handler for Co-Curricular Columns (Excel Tools)
   const handleCoCurricularColumnAction = async (activityKey: string, typeKey: string, label: string, actionType: "copy" | "cut" | "clear") => {
     setValidationError(null);
     const storageKey = `${selectedTerm}_${activityKey}_${typeKey}`;
@@ -283,7 +310,6 @@ export default function MarksEntryPage() {
     setLoading(false);
   };
 
-  // Dedicated Save Execution for Class Master Co-Curricular Marks
   const handleSaveCoCurricular = async () => {
     if (validationError) {
       alert("  ⚠️  ⚠️ Fix processing marks validation conflicts before saving.");
@@ -541,7 +567,7 @@ export default function MarksEntryPage() {
           </div>
         )}
 
-        {/* Co-Curricular Work Terminal — Formatted exactly for Sports and Creative Art (Mid/5, Exam/5, Total 10) */}
+        {/* Co-Curricular Table Panel — Complete with Copy, Cut, Clear, and Excel Paste integration */}
         {selectedAlloc && (
           <div className="bg-white border-2 rounded-2xl shadow-sm p-5 space-y-4">
             <div className="flex justify-between items-center border-b pb-2 gap-4 flex-wrap">
@@ -551,6 +577,9 @@ export default function MarksEntryPage() {
                 </h2>
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
                   Stream {selectedAlloc.class} Domain Control Panel (Sports & Creative Art Only)
+                </p>
+                <p className="text-[9px] text-blue-600 font-bold uppercase">
+                  💡 You can now paste column arrays directly from Excel into any co-curricular input cell below!
                 </p>
               </div>
               {isDesignatedClassTeacher ? (
@@ -645,6 +674,7 @@ export default function MarksEntryPage() {
                             data-co-cell="sports_mid"
                             onChange={(e) => handleCoCurricularChange(student.id, "sports", "mid", e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, idx, "sports_mid", true)}
+                            onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "sports", "mid")}
                             className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
                         </td>
@@ -659,6 +689,7 @@ export default function MarksEntryPage() {
                             data-co-cell="sports_exam"
                             onChange={(e) => handleCoCurricularChange(student.id, "sports", "exam", e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, idx, "sports_exam", true)}
+                            onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "sports", "exam")}
                             className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
                         </td>
@@ -678,6 +709,7 @@ export default function MarksEntryPage() {
                             data-co-cell="art_mid"
                             onChange={(e) => handleCoCurricularChange(student.id, "art", "mid", e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, idx, "art_mid", true)}
+                            onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "art", "mid")}
                             className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
                         </td>
@@ -692,6 +724,7 @@ export default function MarksEntryPage() {
                             data-co-cell="art_exam"
                             onChange={(e) => handleCoCurricularChange(student.id, "art", "exam", e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, idx, "art_exam", true)}
+                            onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "art", "exam")}
                             className="w-12 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
                         </td>

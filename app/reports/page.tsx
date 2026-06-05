@@ -1,47 +1,37 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { db } from "../../lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 
-const academicSubjects = [
-  { name: "MATHEMATICS", maxInt: 50, maxEx: 50 },
-  { name: "SET", maxInt: 50, maxEx: 50 },
-  { name: "SRE", maxInt: 50, maxEx: 50 },
-  { name: "KINYARWANDA", maxInt: 50, maxEx: 50 },
-  { name: "FRANÇAIS", maxInt: 25, maxEx: 25 },
-  { name: "ENGLISH", maxInt: 50, maxEx: 50 }
+// Unified subject registry mapping human labels to Firestore Document IDs
+const subjectsRegistry = [
+  { id: "math", name: "MATHEMATICS" },
+  { id: "kiny", name: "KINYARWANDA" },
+  { id: "eng", name: "ENGLISH" },
+  { id: "set", name: "SET" },
+  { id: "sre", name: "SRE" },
+  { id: "french", name: "FRENCH" }
 ];
 
-const coCurricularSubjects = [
-  { name: "SPORT", maxInt: 5, maxEx: 5 },
-  { name: "CREATIVE ART", maxInt: 5, maxEx: 5 }
-];
-
-type ReportType = "mid1_report" | "mid2_report" | "final_report";
+type ReportMode = "mid1" | "mid2" | "summation";
 
 function ReportCardsEngine() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  
+
   const urlClass = searchParams.get("class");
   const urlStudentId = searchParams.get("studentId");
+  const activeClass = urlClass ? urlClass.toUpperCase() : "P6";
   
-  const [activeClass, setActiveClass] = useState(urlClass ? urlClass.toUpperCase() : "P4");
   const [selectedTerm, setSelectedTerm] = useState("term1");
-  const [reportType, setReportType] = useState<ReportType>("final_report");
-  
+  const [reportMode, setReportMode] = useState<ReportMode>("summation");
   const [students, setStudents] = useState<any[]>([]);
   const [allMarks, setAllMarks] = useState<any>({});
   const [classTeacherName, setClassTeacherName] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeStudentId, setActiveStudentId] = useState<string | null>(urlStudentId);
   const [isPrintAllMode, setIsPrintAllMode] = useState(false);
-
-  useEffect(() => {
-    if (urlClass) setActiveClass(urlClass.toUpperCase());
-  }, [urlClass]);
 
   useEffect(() => {
     setActiveStudentId(urlStudentId);
@@ -51,7 +41,7 @@ function ReportCardsEngine() {
     const fetchClassReports = async () => {
       setLoading(true);
       try {
-        // 1. Fetch Class Teacher Details
+        // 1. Resolve Class Teacher Context Matching Data
         const tSnap = await getDocs(collection(db, "teachers"));
         let detectedTeacher = "";
         tSnap.forEach((docSnap) => {
@@ -68,102 +58,91 @@ function ReportCardsEngine() {
         });
         setClassTeacherName(detectedTeacher.toUpperCase());
 
-        // 2. Fetch Student Population
+        // 2. Fetch Active Student Array
         const sSnap = await getDocs(collection(db, "students"));
         const classFiltered = sSnap.docs
           .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
           .filter((s) => s.class?.toUpperCase() === activeClass);
 
-        // 3. Collect Marks Matrices
+        // 3. Matrix Multi-fetch For Student Marks Sub-Collections
         let marksMatrix: any = {};
         await Promise.all(classFiltered.map(async (student) => {
           const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
           marksMatrix[student.id] = {};
           mSnap.forEach((docSnap) => {
-            const docId = docSnap.id.trim().toUpperCase();
-            let key = docId;
-            if (docId === "MATH" || docId === "MATHEMATICS") key = "MATHEMATICS";
-            if (docId === "KINY" || docId === "KINYARWANDA") key = "KINYARWANDA";
-            if (docId === "ENG" || docId === "ENGLISH") key = "ENGLISH";
-            if (docId === "SOCIAL" || docId === "SOCIAL STUDIES") key = "SOCIAL STUDIES";
-            if (docId === "FRENCH" || docId === "FRANÇAIS") key = "FRANÇAIS";
-            marksMatrix[student.id][key] = docSnap.data();
+            // Normalize incoming keys to lowercase for matching stability
+            marksMatrix[student.id][docSnap.id.toLowerCase().trim()] = docSnap.data();
           });
         }));
         setAllMarks(marksMatrix);
 
-        // 4. Calculate Dynamic Performance Metrics for Rankings
-        const processedStudents = classFiltered.map((student) => {
+        // 4. Score Compilations and Performance Matrix Calculations
+        const studentsWithScores = classFiltered.map((student) => {
           const studentMarks = marksMatrix[student.id] || {};
-          let scoreAcquired = 0;
-          let scoreMaxTotal = 0;
+          let totalMaxPossible = 0;
+          let totalAcquiredMarks = 0;
 
-          if (reportType === "mid1_report" || reportType === "mid2_report") {
-            academicSubjects.forEach((sub) => {
-              if (activeClass === "P6" && sub.name === "FRANÇAIS") return;
-              const mData = studentMarks[sub.name] || {};
-              const targetField = reportType === "mid1_report" 
-                ? (mData[`${selectedTerm}_t1`] ?? mData[`${selectedTerm}_m1`] ?? "-")
-                : (mData[`${selectedTerm}_t2`] ?? mData[`${selectedTerm}_m2`] ?? "-");
+          subjectsRegistry.forEach((sub) => {
+            if (activeClass === "P6" && sub.id === "french") return;
+            const isFrenchP1P5 = sub.id === "french" && activeClass !== "P6";
+            const baseMax = isFrenchP1P5 ? 25 : 50;
 
-              if (targetField !== "-") scoreAcquired += Number(targetField);
-              scoreMaxTotal += reportType === "mid1_report" ? sub.maxInt : sub.maxEx;
-            });
-          } else {
-            const termsList = ["term1", "term2", "term3"];
-            academicSubjects.forEach((sub) => {
-              if (activeClass === "P6" && sub.name === "FRANÇAIS") return;
-              const mData = studentMarks[sub.name] || {};
-              termsList.forEach((t) => {
-                const m1 = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
-                const m2 = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
-                if (m1 !== "-") scoreAcquired += Number(m1);
-                if (m2 !== "-") scoreAcquired += Number(m2);
-                scoreMaxTotal += sub.maxInt + sub.maxEx;
-              });
-            });
+            const mData = studentMarks[sub.id] || {};
+            const t1 = mData[`${selectedTerm}_t1`] ?? "-";
+            const m1 = mData[`${selectedTerm}_m1`] ?? "-";
+            const t2 = mData[`${selectedTerm}_t2`] ?? "-";
+            const m2 = mData[`${selectedTerm}_m2`] ?? "-";
 
-            coCurricularSubjects.forEach((sub) => {
-              const mData = studentMarks[sub.name] || {};
-              termsList.forEach((t) => {
-                const m1 = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
-                const m2 = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
-                if (m1 !== "-") scoreAcquired += Number(m1);
-                if (m2 !== "-") scoreAcquired += Number(m2);
-                scoreMaxTotal += sub.maxInt + sub.maxEx;
-              });
-            });
-          }
+            // If subject has zero parameters entered, skip layout aggregation
+            if (t1 === "-" && m1 === "-" && t2 === "-" && m2 === "-") return;
 
-          const percentage = scoreMaxTotal > 0 ? (scoreAcquired / scoreMaxTotal) * 100 : 0;
-          return { ...student, scoreAcquired, scoreMaxTotal, percentage };
+            const v1 = t1 !== "-" ? Number(t1) : 0;
+            const v2 = m1 !== "-" ? Number(m1) : 0;
+            const v3 = t2 !== "-" ? Number(t2) : 0;
+            const v4 = m2 !== "-" ? Number(m2) : 0;
+
+            if (reportMode === "mid1") {
+              totalAcquiredMarks += (v1 + v2);
+              totalMaxPossible += (baseMax * 2);
+            } else if (reportMode === "mid2") {
+              totalAcquiredMarks += (v3 + v4);
+              totalMaxPossible += (baseMax * 2);
+            } else {
+              totalAcquiredMarks += (v1 + v2 + v3 + v4);
+              totalMaxPossible += (baseMax * 2);
+            }
+          });
+
+          const percentage = totalMaxPossible > 0 ? (totalAcquiredMarks / totalMaxPossible) * 100 : 0;
+          return {
+            ...student,
+            totalAcquiredMarks,
+            totalMaxPossible,
+            percentage
+          };
         });
 
-        // Calculate Position Rankings
-        processedStudents.sort((a, b) => b.percentage - a.percentage);
+        // Compute Sorting Positional Placements
+        studentsWithScores.sort((a, b) => b.percentage - a.percentage);
         let currentRank = 1;
-        const ranked = processedStudents.map((st, idx, arr) => {
-          if (idx > 0 && st.percentage < arr[idx - 1].percentage) {
-            currentRank = idx + 1;
+        const rankedStudents = studentsWithScores.map((student, index, arr) => {
+          if (index > 0 && student.percentage < arr[index - 1].percentage) {
+            currentRank = index + 1;
           }
-          return { ...st, position: currentRank };
+          return { ...student, position: currentRank };
         });
 
-        ranked.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setStudents(ranked);
+        // Alphabetical sort for report card layout presentation
+        rankedStudents.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setStudents(rankedStudents);
       } catch (err) {
-        console.error("Data tracking failure:", err);
+        console.error("Data matrix failure:", err);
       }
       setLoading(false);
     };
 
     fetchClassReports();
-  }, [activeClass, selectedTerm, reportType]);
-
-  const handleClassChange = (newClass: string) => {
-    setActiveClass(newClass);
-    router.push(`/reports?class=${newClass.toLowerCase()}`);
-  };
+  }, [activeClass, selectedTerm, reportMode]);
 
   const handlePrintAll = () => {
     setIsPrintAllMode(true);
@@ -171,434 +150,305 @@ function ReportCardsEngine() {
     setTimeout(() => { window.print(); }, 500);
   };
 
+  const handlePrintSingle = (studentId: string) => {
+    setIsPrintAllMode(false);
+    setActiveStudentId(studentId);
+    setTimeout(() => { window.print(); }, 500);
+  };
+
+  const getAutomaticComment = (percentage: number, max: number, studentMarks: any) => {
+    if (max === 0) return "No marks recorded for this academic period.";
+    let weakSubjects: string[] = [];
+    
+    subjectsRegistry.forEach((sub) => {
+      if (activeClass === "P6" && sub.id === "french") return;
+      const isFrenchP1P5 = sub.id === "french" && activeClass !== "P6";
+      const baseMax = isFrenchP1P5 ? 25 : 50;
+      
+      const mData = studentMarks[sub.id] || {};
+      const t1 = mData[`${selectedTerm}_t1`] ?? "-";
+      const m1 = mData[`${selectedTerm}_m1`] ?? "-";
+      const t2 = mData[`${selectedTerm}_t2`] ?? "-";
+      const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+      
+      const v1 = t1 !== "-" ? Number(t1) : 0;
+      const v2 = m1 !== "-" ? Number(m1) : 0;
+      const v3 = t2 !== "-" ? Number(t2) : 0;
+      const v4 = m2 !== "-" ? Number(m2) : 0;
+      
+      let subTotal = 0;
+      let subMax = 0;
+      if (reportMode === "mid1") {
+        subTotal = v1 + v2;
+        subMax = baseMax * 2;
+      } else if (reportMode === "mid2") {
+        subTotal = v3 + v4;
+        subMax = baseMax * 2;
+      } else {
+        subTotal = v1 + v2 + v3 + v4;
+        subMax = baseMax * 2;
+      }
+      
+      const subPercentage = subMax > 0 ? (subTotal / subMax) * 100 : 100;
+      if (subPercentage < 65 && (t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-")) {
+        weakSubjects.push(sub.name);
+      }
+    });
+
+    if (percentage >= 85) {
+      if (weakSubjects.length > 0) {
+        return `An outstanding performance overall! However, more active revision is recommended in ${weakSubjects.join(", ")} to clear minor gaps and keep up this elite standard.`;
+      }
+      return "An exceptional academic performance this term! Highly disciplined, consistent, and exemplary work across all course pathways. Keep up this brilliant standard.";
+    }
+    if (percentage >= 70) {
+      if (weakSubjects.length > 0) {
+        return `Very good progress made this term. The learner is capable, but needs closer focus and dynamic improvement in ${weakSubjects.join(", ")} where averages fell below 65%.`;
+      }
+      return "A very strong and commendable performance. Shows steady focus and capability in all subjects. Keep pushing for even higher grades next term.";
+    }
+    if (percentage >= 50) {
+      if (weakSubjects.length > 0) {
+        return `Passed successfully, but overall consistency is fair. Focused remedial practice is highly necessary in ${weakSubjects.join(", ")} to push scores above the 65% target baseline.`;
+      }
+      return "Fair performance this term. The learner has passed, but needs to increase general effort and concentration across all pathways to secure better marks.";
+    }
+    return "Performance did not reach the passing threshold this term. Closer supervision, regular study habits, and a complete change of attitude toward schoolwork are required.";
+  };
+
+  const formatPosition = (pos: number) => {
+    const j = pos % 10, k = pos % 100;
+    if (j === 1 && k !== 11) return pos + "st";
+    if (j === 2 && k !== 12) return pos + "nd";
+    if (j === 3 && k !== 13) return pos + "rd";
+    return pos + "th";
+  };
+
+  const getReportTitle = () => {
+    if (reportMode === "mid1") return "MID-TERM 1 LEARNER TRANSCRIPT";
+    if (reportMode === "mid2") return "MID-TERM 2 LEARNER TRANSCRIPT";
+    return "OFFICIAL END-OF-TERM PERFORMANCE SUMMATION";
+  };
+
+  if (loading) return <div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">Generating Clean Report Matrices...</div>;
+
   return (
-    <div className="min-h-screen bg-gray-100 font-sans text-[11px] pb-20">
+    <div className="min-h-screen bg-gray-100 font-sans text-xs pb-20 text-black">
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
-          @page { 
-            size: ${reportType === "final_report" ? "A4 landscape" : "A4 portrait"}; 
-            margin: 5mm; 
-          }
+          @page { size: A4 portrait; margin: 6mm 8mm; }
           body { background: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           .print-card {
-            border: 3px solid black !important;
-            padding: 12px !important;
+            border: 5px solid black !important;
+            padding: 24px 24px 20px 24px !important;
             margin: 0 auto !important;
+            box-shadow: none !important;
             width: 100% !important;
-            box-sizing: border-box !important;
+            max-height: 284mm !important;
+            height: 284mm !important;
             page-break-after: always !important;
             page-break-inside: avoid !important;
-          }
-          .mid-print-layout {
-            max-width: 550px !important;
-            margin: 20mm auto !important;
-            height: auto !important;
-          }
-          .final-print-layout {
-            height: 198mm !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: space-between !important;
+            box-sizing: border-box !important;
           }
-          .print-teacher-line { border: none !important; text-decoration: none !important; }
-          .print-hidden { display: none !important; }
         }
       `}} />
 
-      {/* Control Dashboard Panel */}
-      <div className="bg-white border-b-2 p-4 shadow-sm print-hidden">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-4">
+      {/* Controller Options Header */}
+      <div className="bg-white border-b-2 p-4 shadow-sm print:hidden">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex flex-wrap gap-4 items-center">
             <div>
-              <label className="block text-[10px] font-black uppercase text-gray-500 mb-1">Select Class</label>
-              <select value={activeClass} onChange={(e) => handleClassChange(e.target.value)} className="p-2 border-2 rounded-xl font-black bg-white text-xs text-blue-950 min-w-[140px]">
-                <option value="P1">Primary 1 (P1)</option>
-                <option value="P2">Primary 2 (P2)</option>
-                <option value="P3">Primary 3 (P3)</option>
-                <option value="P4">Primary 4 (P4)</option>
-                <option value="P5">Primary 5 (P5)</option>
-                <option value="P6">Primary 6 (P6)</option>
+              <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Class Focus</label>
+              <div className="p-2 border-2 rounded-xl font-black bg-gray-100 text-blue-900 text-xs px-4 uppercase">
+                Class Stream {activeClass}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[9px] font-black uppercase text-gray-400 mb-0.5">Target Term</label>
+              <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="p-2 border-2 rounded-xl font-black bg-white text-xs text-black">
+                <option value="term1">Term 1</option>
+                <option value="term2">Term 2</option>
+                <option value="term3">Term 3</option>
               </select>
             </div>
-
-            {reportType !== "final_report" && (
-              <div>
-                <label className="block text-[10px] font-black uppercase text-gray-500 mb-1">Active Term</label>
-                <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="p-2 border-2 rounded-xl font-black bg-white text-xs text-blue-950 min-w-[120px]">
-                  <option value="term1">Term 1</option>
-                  <option value="term2">Term 2</option>
-                  <option value="term3">Term 3</option>
-                </select>
-              </div>
-            )}
-
             <div>
-              <label className="block text-[10px] font-black uppercase text-blue-900 mb-1">Report Choice Selection</label>
-              <select value={reportType} onChange={(e) => setReportType(e.target.value as ReportType)} className="p-2 border-2 border-blue-900 rounded-xl font-black bg-white text-xs text-blue-900 min-w-[280px]">
-                <option value="mid1_report">1. MID TERM 1 (Vertical Portrait Card)</option>
-                <option value="mid2_report">2. MID TERM 2 (Vertical Portrait Card)</option>
-                <option value="final_report">3. FINAL REPORT CARD (Dual Landscape View)</option>
+              <label className="block text-[9px] font-black uppercase text-blue-900 mb-0.5">Report Layout Type</label>
+              <select value={reportMode} onChange={(e) => setReportMode(e.target.value as ReportMode)} className="p-2 border-2 border-blue-900 rounded-xl font-black bg-white text-xs text-blue-900">
+                <option value="mid1">Separate Mid-Term 1 Report</option>
+                <option value="mid2">Separate Mid-Term 2 Report</option>
+                <option value="summation">Full Term Summation Report</option>
               </select>
             </div>
           </div>
-
-          <button onClick={handlePrintAll} className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-6 py-2.5 rounded-xl shadow mt-4 sm:mt-0">
-            Print Complete Report Batch 🖨️
+          <button onClick={handlePrintAll} className="bg-green-700 hover:bg-green-800 text-white font-black text-xs uppercase px-5 py-3 rounded-xl shadow transition-all">
+            Print Entire Class Register 🖨️✨
           </button>
         </div>
       </div>
 
-      {/* Main Container Layout Frame */}
-      <div className={`mx-auto p-4 space-y-12 mt-4 ${reportType === "final_report" ? "max-w-[1140px]" : "max-w-[520px]"}`}>
-        {loading ? (
-          <div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest animate-pulse">Processing Layout Systems...</div>
-        ) : students.length === 0 ? (
-          <div className="bg-white border p-12 text-center rounded-xl shadow-sm text-gray-500 text-sm font-bold">No students found.</div>
+      {/* Reports Stack Generator */}
+      <div className="max-w-4xl mx-auto p-4 space-y-12 mt-6">
+        {students.length === 0 ? (
+          <div className="text-center font-black p-10 text-gray-400 uppercase">No students discovered in Class Stream {activeClass}</div>
         ) : (
           students.map((student) => {
             const studentMarks = allMarks[student.id] || {};
             const isVisible = isPrintAllMode || activeStudentId === student.id || activeStudentId === null;
             if (!isVisible) return null;
 
-            let totalMaxGeneral = 0;
-            let totalAcquiredGeneral = 0;
-
-            let leftSideTerm1Sum = 0;
-            let leftSideTerm2Sum = 0;
-            let leftSideTerm3Sum = 0;
-            let leftSideMaxSubtotals = 0;
-
-            let rightSideAcademicAcq = 0;
-            let rightSideAcademicMax = 0;
-
             return (
-              <div key={student.id} className={`bg-white border-[3px] border-black p-5 shadow-sm print-card ${reportType === "final_report" ? "final-print-layout" : "mid-print-layout"}`}>
-                
-                {/* ==================== FORMAT VIEW 1: MID TERM 1 & 2 (COMPACT VERTICAL PORTRAIT SHAPE) ==================== */}
-                {(reportType === "mid1_report" || reportType === "mid2_report") && (
-                  <div className="w-full">
-                    
-                    {/* Centered Top Title Banner */}
-                    <div className="text-center font-black border-b-[3px] border-black pb-3 mb-4">
-                      <h2 className="text-sm tracking-widest uppercase text-blue-950">PROGRESS REPORT</h2>
-                      <p className="text-[10px] text-gray-500 mt-0.5 uppercase font-serif">
-                        {selectedTerm.replace("term", "Term ")} - {reportType === "mid1_report" ? "MID-TERM 1" : "MID-TERM 2"}
-                      </p>
-                    </div>
-
-                    {/* Metadata Rows */}
-                    <div className="grid grid-cols-2 gap-y-2 text-[11px] font-black mb-4 border-b pb-3 uppercase">
-                      <div>STUDENT: <span className="text-blue-900 font-sans ml-1 text-xs">{student.name}</span></div>
-                      <div className="text-right">CLASS: <span className="text-blue-900 ml-1">{student.class}</span></div>
-                      <div>YEAR: <span className="text-blue-900 font-serif ml-1">2026</span></div>
-                      <div className="text-right">ROLL POPULATION: <span className="text-blue-900 font-serif ml-1">{students.length}</span></div>
-                    </div>
-
-                    {/* Accurate Compact 3-Column Midterm Table Matrix */}
-                    <table className="w-full border-collapse border-[3px] border-black text-center text-[11px] font-black">
-                      <thead>
-                        <tr className="bg-gray-100 border-b-[3px] border-black h-7 uppercase text-[10px] tracking-wider">
-                          <th className="text-left pl-3 border-r-2 border-black w-[55%]">MATIÈRES / SUBJECTS</th>
-                          <th className="border-r-2 border-black w-[20%]">MAX</th>
-                          <th className="w-[25%]">NOTE / SCORE</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {academicSubjects.map((sub) => {
-                          if (activeClass === "P6" && sub.name === "FRANÇAIS") return null;
-                          const mData = studentMarks[sub.name] || {};
-                          const mark = reportType === "mid1_report"
-                            ? (mData[`${selectedTerm}_t1`] ?? mData[`${selectedTerm}_m1`] ?? "-")
-                            : (mData[`${selectedTerm}_t2`] ?? mData[`${selectedTerm}_m2`] ?? "-");
-
-                          const rowMax = reportType === "mid1_report" ? sub.maxInt : sub.maxEx;
-                          if (mark !== "-") {
-                            totalAcquiredGeneral += Number(mark);
-                          }
-                          totalMaxGeneral += rowMax;
-
-                          return (
-                            <tr key={sub.name} className="border-b border-black h-8">
-                              <td className="text-left pl-3 font-black border-r-2 border-black uppercase text-blue-950 tracking-wide">{sub.name}</td>
-                              <td className="border-r-2 border-black text-gray-500 font-serif text-xs bg-gray-50/50">{rowMax}</td>
-                              <td className="font-serif font-black text-blue-900 text-xs">{mark}</td>
-                            </tr>
-                          );
-                        })}
-
-                        {/* Mid-Term Dynamic Bottom Accumulations */}
-                        <tr className="border-t-[3px] border-b-2 border-black h-8 bg-gray-50 font-black text-xs">
-                          <td className="text-left pl-3 uppercase text-blue-950">TOTAL GENERAL</td>
-                          <td className="border-r-2 border-black font-serif text-blue-950 bg-gray-100">{totalMaxGeneral}</td>
-                          <td className="font-serif text-blue-900">{totalAcquiredGeneral}</td>
-                        </tr>
-                        <tr className="border-b-2 border-black h-8 font-black">
-                          <td className="text-left pl-3 uppercase text-gray-700">PERCENTAGE / POURCENTAGE</td>
-                          <td colSpan={2} className="font-serif text-blue-950 text-xs bg-blue-50/20">
-                            {totalMaxGeneral > 0 ? `${((totalAcquiredGeneral / totalMaxGeneral) * 100).toFixed(1)}%` : "-"}
-                          </td>
-                        </tr>
-                        <tr className="h-8 font-black">
-                          <td className="text-left pl-3 uppercase text-gray-700">PLACE / POSITION RANK</td>
-                          <td colSpan={2} className="bg-green-50 text-green-900 font-serif text-[11px] uppercase tracking-wider">
-                            {student.position} SUR {students.length}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+              <div key={student.id} className={`bg-white border-4 border-black p-8 shadow-md rounded-xl print-card flex flex-col justify-between ${activeStudentId === student.id ? "ring-4 ring-blue-900" : ""}`}>
+                <div className="flex flex-col justify-start space-y-4 flex-grow">
+                  
+                  <div className="print:hidden flex justify-end gap-2 mb-4 bg-gray-50 p-2 rounded-lg border">
+                    <button onClick={() => handlePrintSingle(student.id)} className="bg-blue-900 text-white font-black px-3 py-1.5 rounded-md uppercase text-[10px]">
+                      Print Only This Card 🖨️
+                    </button>
+                    {activeStudentId !== null && (
+                      <button onClick={() => setActiveStudentId(null)} className="bg-gray-600 text-white font-black px-3 py-1.5 rounded-md uppercase text-[10px]">
+                        Show All Cards ✕
+                      </button>
+                    )}
                   </div>
-                )}
 
-                {/* ==================== FORMAT VIEW 2: FINAL REPORT CARD (SIDE-BY-SIDE TWO PARTS) ==================== */}
-                {reportType === "final_report" && (
-                  <div className="flex gap-4 items-start w-full">
-                    
-                    {/* LEFT SIDE: PART 1 (Academic Midterms Combination) */}
-                    <div className="w-[50%] border-[2px] border-black p-1.5 bg-white">
-                      <div className="flex justify-between text-[8px] font-black uppercase mb-1 border-b border-black pb-0.5">
-                        <span>ANNEE: 2026</span>
-                        <span className="text-blue-900 text-[9px]">{student.name}</span>
-                        <span>CLASSE: {student.class}</span>
+                  <div className="border-b-4 border-black pb-4">
+                    <div className="flex items-center justify-start gap-6 w-full">
+                      <div className="h-16 w-16 bg-blue-900 text-white font-black flex items-center justify-center text-xl rounded-xl shadow-inner">NGS</div>
+                      <div className="text-left flex-grow">
+                        <h2 className="font-black text-3xl tracking-wide text-blue-900 uppercase leading-none m-0">NEW GENERATION SCHOOL</h2>
+                        <p className="text-xs font-black uppercase tracking-widest text-blue-900 mt-2">{getReportTitle()}</p>
                       </div>
-                      
-                      <table className="w-full border-collapse border border-black text-[9px] font-black text-center">
-                        <thead>
-                          <tr className="bg-gray-100 border-b border-black h-5">
-                            <th className="text-left pl-1 border-r border-black w-[28%]">SUBJECTS</th>
-                            <th className="border-r border-black w-[8%]">MID 1</th>
-                            <th className="border-r border-black w-[8%]">MID 2</th>
-                            <th className="border-r-2 border-black bg-gray-50 w-[10%]">Total</th>
-                            <th className="border-r border-black w-[8%]">1st T</th>
-                            <th className="border-r border-black w-[8%]">2nd T</th>
-                            <th className="border-r border-black w-[8%]">3rd T</th>
-                            <th className="border-r border-black w-[10%] bg-gray-50">Max</th>
-                            <th className="border-r border-black w-[10%]">Total</th>
-                            <th className="w-[8%]">%</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {academicSubjects.map((sub) => {
-                            if (activeClass === "P6" && sub.name === "FRANÇAIS") return null;
-                            const mData = studentMarks[sub.name] || {};
-                            
-                            const getTermTotal = (t: string) => {
-                              const m1 = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
-                              const m2 = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
-                              return (m1 !== "-" || m2 !== "-") ? (m1 !== "-" ? Number(m1) : 0) + (m2 !== "-" ? Number(m2) : 0) : 0;
-                            };
-
-                            const t1 = getTermTotal("term1");
-                            const t2 = getTermTotal("term2");
-                            const t3 = getTermTotal("term3");
-                            
-                            leftSideTerm1Sum += t1;
-                            leftSideTerm2Sum += t2;
-                            leftSideTerm3Sum += t3;
-
-                            const sumAcq = t1 + t2 + t3;
-                            const maxRow = (sub.maxInt + sub.maxEx) * 3;
-                            leftSideMaxSubtotals += maxRow;
-
-                            return (
-                              <tr key={sub.name} className="border-b border-black h-6">
-                                <td className="text-left pl-1 border-r border-black uppercase text-blue-950 text-[8px]">{sub.name}</td>
-                                <td className="border-r border-black font-serif text-gray-500">{sub.maxInt}</td>
-                                <td className="border-r border-black font-serif text-gray-500">{sub.maxEx}</td>
-                                <td className="border-r-2 border-black bg-gray-50 font-serif">{sub.maxInt + sub.maxEx}</td>
-                                <td className="border-r border-black font-serif">{t1 || "-"}</td>
-                                <td className="border-r border-black font-serif">{t2 || "-"}</td>
-                                <td className="border-r border-black font-serif">{t3 || "-"}</td>
-                                <td className="border-r border-black bg-gray-50 font-serif">{maxRow}</td>
-                                <td className="border-r border-black font-serif text-blue-900">{sumAcq || "-"}</td>
-                                <td className="font-serif text-blue-900">{sumAcq > 0 ? `${((sumAcq / maxRow) * 100).toFixed(0)}%` : "-"}</td>
-                              </tr>
-                            );
-                          })}
-                          
-                          <tr className="bg-gray-50 font-bold h-6 border-t border-black">
-                            <td className="text-left pl-1 border-r border-black text-[8px]">TOTAL GENER.</td>
-                            <td className="border-r border-black font-serif text-gray-400">{activeClass === "P6" ? "250" : "275"}</td>
-                            <td className="border-r border-black font-serif text-gray-400">{activeClass === "P6" ? "250" : "275"}</td>
-                            <td className="border-r-2 border-black bg-gray-100 font-serif">{activeClass === "P6" ? "500" : "550"}</td>
-                            <td className="border-r border-black font-serif text-blue-900">{leftSideTerm1Sum || "-"}</td>
-                            <td className="border-r border-black font-serif text-blue-900">{leftSideTerm2Sum || "-"}</td>
-                            <td className="border-r border-black font-serif text-blue-900">{leftSideTerm3Sum || "-"}</td>
-                            <td className="border-r border-black font-serif bg-gray-100">{leftSideMaxSubtotals}</td>
-                            <td colSpan={2} className="font-serif text-blue-900 text-center text-xs">{(leftSideTerm1Sum + leftSideTerm2Sum + leftSideTerm3Sum) || "-"}</td>
-                          </tr>
-                          <tr className="h-6 border-t border-black">
-                            <td className="text-left pl-1 border-r border-black text-[8px]">POURCENTAGE</td>
-                            <td colSpan={3} className="border-r-2 border-black bg-gray-100 text-gray-400">-</td>
-                            <td colSpan={3} className="border-r border-black font-serif text-blue-900">
-                              {leftSideMaxSubtotals > 0 ? `${(((leftSideTerm1Sum + leftSideTerm2Sum + leftSideTerm3Sum) / leftSideMaxSubtotals) * 100).toFixed(1)}%` : "-"}
-                            </td>
-                            <td colSpan={3} className="font-serif font-bold text-blue-900 text-center">
-                              {leftSideMaxSubtotals > 0 ? `${(((leftSideTerm1Sum + leftSideTerm2Sum + leftSideTerm3Sum) / leftSideMaxSubtotals) * 100).toFixed(1)}%` : "-"}
-                            </td>
-                          </tr>
-                          <tr className="h-6 border-t border-black">
-                            <td className="text-left pl-1 border-r border-black text-[8px]">PLACE</td>
-                            <td colSpan={3} className="border-r-2 border-black bg-gray-100 text-gray-400">-</td>
-                            <td colSpan={3} className="border-r border-black text-green-800 text-center font-serif text-[8px]">SUR {students.length}</td>
-                            <td colSpan={3} className="bg-green-50 text-green-900 font-serif text-center font-bold text-[9px]">
-                              {student.position} SUR {students.length}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
                     </div>
-
-                    {/* -------------------- RIGHT SIDE: PART 2 (Cumulative MID + EXAM + Co-Curricular) -------------------- */}
-                    <div className="w-[50%] border-[2px] border-black p-1.5 bg-white">
-                      <div className="flex justify-between text-[8px] font-black uppercase mb-1 border-b border-black pb-0.5">
-                        <span>MATIÈRES / ENTRIES</span>
-                        <span>Nombre d'élèves: {students.length}</span>
-                      </div>
-                      
-                      <table className="w-full border-collapse border border-black text-[9px] font-black text-center">
-                        <thead>
-                          <tr className="bg-gray-100 border-b border-black h-5">
-                            <th className="text-left pl-1 border-r border-black w-[25%]">MATIÈRES</th>
-                            <th className="border-r border-black w-[6%]">MaxI</th>
-                            <th className="border-r border-black w-[6%]">MaxE</th>
-                            <th className="border-r border-black w-[8%] bg-gray-50">Tot</th>
-                            <th className="border-r border-black w-[8%]">MID</th>
-                            <th className="border-r border-black w-[8%]">EXAM</th>
-                            <th className="border-r border-black w-[9%] bg-gray-50">Total</th>
-                            <th className="border-r border-black w-[10%] bg-gray-50">TotalMax</th>
-                            <th className="border-r border-black w-[10%]">total</th>
-                            <th className="w-[10%]">%</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {academicSubjects.map((sub) => {
-                            if (activeClass === "P6" && sub.name === "FRANÇAIS") return null;
-                            const mData = studentMarks[sub.name] || {};
-                            
-                            const mid = mData[`${selectedTerm}_t1`] ?? mData[`${selectedTerm}_m1`] ?? "-";
-                            const ex = mData[`${selectedTerm}_t2`] ?? mData[`${selectedTerm}_m2`] ?? "-";
-                            const total = (mid !== "-" || ex !== "-") ? (mid !== "-" ? Number(mid) : 0) + (ex !== "-" ? Number(ex) : 0) : "-";
-
-                            const subTotalMax = (sub.maxInt + sub.maxEx) * 3;
-                            rightSideAcademicMax += subTotalMax;
-
-                            const getSubjectAnnualTotal = () => {
-                              let s = 0;
-                              ["term1", "term2", "term3"].forEach((t) => {
-                                const m1 = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
-                                const m2 = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
-                                if (m1 !== "-") s += Number(m1);
-                                if (m2 !== "-") s += Number(m2);
-                              });
-                              return s;
-                            };
-                            const annualSubTotal = getSubjectAnnualTotal();
-                            rightSideAcademicAcq += annualSubTotal;
-
-                            return (
-                              <tr key={sub.name} className="border-b border-black h-6">
-                                <td className="text-left pl-1 border-r border-black uppercase text-[8px] text-gray-700">{sub.name}</td>
-                                <td className="border-r border-black font-serif text-gray-400">{sub.maxInt}</td>
-                                <td className="border-r border-black font-serif text-gray-400">{sub.maxEx}</td>
-                                <td className="border-r border-black bg-gray-50 font-serif">{sub.maxInt + sub.maxEx}</td>
-                                <td className="border-r border-black font-serif">{mid}</td>
-                                <td className="border-r border-black font-serif">{ex}</td>
-                                <td className="border-r border-black bg-gray-50 font-serif text-blue-900">{total}</td>
-                                <td className="border-r border-black bg-gray-100 font-serif">{subTotalMax}</td>
-                                <td className="border-r border-black font-serif font-bold text-blue-900">{annualSubTotal || "-"}</td>
-                                <td className="font-serif font-bold text-blue-900">
-                                  {annualSubTotal > 0 ? `${((annualSubTotal / subTotalMax) * 100).toFixed(0)}%` : "-"}
-                                </td>
-                              </tr>
-                            );
-                          })}
-
-                          <tr className="bg-gray-100 border-t border-b border-black h-5 font-black text-center text-[8px] tracking-wider">
-                            <td colSpan={10}>CO-CURRICULA ACTIVITIES</td>
-                          </tr>
-
-                          {coCurricularSubjects.map((sub) => {
-                            const mData = studentMarks[sub.name] || {};
-                            const mid = mData[`${selectedTerm}_t1`] ?? mData[`${selectedTerm}_m1`] ?? "-";
-                            const ex = mData[`${selectedTerm}_t2`] ?? mData[`${selectedTerm}_m2`] ?? "-";
-                            const total = (mid !== "-" || ex !== "-") ? (mid !== "-" ? Number(mid) : 0) + (ex !== "-" ? Number(ex) : 0) : "-";
-
-                            const subTotalMax = (sub.maxInt + sub.maxEx) * 3;
-                            rightSideAcademicMax += subTotalMax;
-
-                            const getCoCurricularAnnualTotal = () => {
-                              let s = 0;
-                              ["term1", "term2", "term3"].forEach((t) => {
-                                const m1 = mData[`${t}_t1`] ?? mData[`${t}_m1`] ?? "-";
-                                const m2 = mData[`${t}_t2`] ?? mData[`${t}_m2`] ?? "-";
-                                if (m1 !== "-") s += Number(m1);
-                                if (m2 !== "-") s += Number(m2);
-                              });
-                              return s;
-                            };
-                            const annualCoTotal = getCoCurricularAnnualTotal();
-                            rightSideAcademicAcq += annualCoTotal;
-
-                            return (
-                              <tr key={sub.name} className="border-b border-black h-5 text-center">
-                                <td className="text-left pl-1 border-r border-black uppercase text-[8px] text-gray-600">{sub.name}</td>
-                                <td className="border-r border-black font-serif text-gray-400">{sub.maxInt}</td>
-                                <td className="border-r border-black font-serif text-gray-400">{sub.maxEx}</td>
-                                <td className="border-r border-black bg-gray-50 font-serif">{sub.maxInt + sub.maxEx}</td>
-                                <td className="border-r border-black font-serif">{mid}</td>
-                                <td className="border-r border-black font-serif">{ex}</td>
-                                <td className="border-r border-black bg-gray-50 font-serif text-green-900">{total}</td>
-                                <td className="border-r border-black bg-gray-100 font-serif">{subTotalMax}</td>
-                                <td className="border-r border-black font-serif font-bold text-green-900">{annualCoTotal || "-"}</td>
-                                <td className="font-serif text-green-900">
-                                  {annualCoTotal > 0 ? `${((annualCoTotal / subTotalMax) * 100).toFixed(0)}%` : "-"}
-                                </td>
-                              </tr>
-                            );
-                          })}
-
-                          <tr className="bg-gray-50 font-bold h-6 border-t border-black">
-                            <td className="text-left pl-1 border-r border-black text-[8px]">TOTAL GENER.</td>
-                            <td className="border-r border-black font-serif text-gray-400">{activeClass === "P6" ? "260" : "285"}</td>
-                            <td className="border-r border-black font-serif text-gray-400">{activeClass === "P6" ? "260" : "285"}</td>
-                            <td className="border-r border-black bg-gray-100 font-serif">{activeClass === "P6" ? "520" : "570"}</td>
-                            <td colSpan={3} className="border-r border-black font-serif text-blue-900">-</td>
-                            <td className="border-r border-black font-serif bg-gray-100">{rightSideAcademicMax}</td>
-                            <td colSpan={2} className="font-serif text-blue-900 text-center text-xs">{rightSideAcademicAcq || "-"}</td>
-                          </tr>
-                          <tr className="h-6 border-t border-black">
-                            <td className="text-left pl-1 border-r border-black text-[8px]">POURCENTAGE</td>
-                            <td colSpan={3} className="border-r-2 border-black bg-gray-100 text-gray-400">-</td>
-                            <td colSpan={3} className="border-r border-black font-serif text-blue-950">..................%</td>
-                            <td colSpan={3} className="bg-gray-100 font-serif font-bold text-blue-900 text-center text-xs">
-                              {rightSideAcademicMax > 0 ? `${((rightSideAcademicAcq / rightSideAcademicMax) * 100).toFixed(1)}%` : "-"}
-                            </td>
-                          </tr>
-                          <tr className="h-6 border-t border-black">
-                            <td className="text-left pl-1 border-r border-black text-[8px]">PLACE</td>
-                            <td colSpan={3} className="border-r-2 border-black bg-gray-100 text-gray-400">-</td>
-                            <td colSpan={3} className="border-r border-black text-green-800 text-center font-serif text-[8px]">..................Sur {students.length}</td>
-                            <td colSpan={3} className="bg-green-50 text-green-900 font-serif text-center font-bold text-[9px]">
-                              {student.position} SUR {students.length}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                    <div className="grid grid-cols-3 gap-4 text-left mt-4 text-[11px] font-black bg-gray-50 p-3 rounded-xl border-2 border-gray-200 w-full">
+                      <div className="uppercase">STUDENT: <span className="text-blue-950 text-sm font-black block mt-0.5">{student.name}</span></div>
+                      <div className="uppercase">CLASS LEVEL: <span className="text-blue-950 text-sm font-black block mt-0.5">{student.class}</span></div>
+                      <div className="uppercase">ACADEMIC PERIOD: <span className="text-blue-900 text-sm font-black block mt-0.5">{selectedTerm.toUpperCase()}</span></div>
                     </div>
-
                   </div>
-                )}
 
-                {/* Shared Underline-Free Teacher Signature Block */}
-                <div className="flex justify-between items-end mt-6 text-[10px] font-black">
+                  {/* Marks Entry Grid */}
+                  <table className="w-full text-center border-collapse border-4 border-black text-sm font-black">
+                    <thead className="bg-gray-100 border-b-4 border-black uppercase text-[10px] tracking-wider">
+                      <tr>
+                        <th className="p-2.5 border-r-4 border-black text-left w-[45%]">COURSE PATHWAY</th>
+                        {reportMode === "mid1" && (
+                          <>
+                            <th className="p-2.5 border-r-4 border-black">TEST 1 (/50)</th>
+                            <th className="p-2.5 border-r-4 border-black">MID 1 (/50)</th>
+                          </>
+                        )}
+                        {reportMode === "mid2" && (
+                          <>
+                            <th className="p-2.5 border-r-4 border-black">TEST 2 (/50)</th>
+                            <th className="p-2.5 border-r-4 border-black">MID 2 (/50)</th>
+                          </>
+                        )}
+                        {reportMode === "summation" && (
+                          <>
+                            <th className="p-2.5 border-r-2 border-black text-[10px]">T1</th>
+                            <th className="p-2.5 border-r-2 border-black text-[10px]">M1</th>
+                            <th className="p-2.5 border-r-2 border-black text-[10px]">T2</th>
+                            <th className="p-2.5 border-r-4 border-black text-[10px]">M2</th>
+                          </>
+                        )}
+                        <th className="p-2.5">TOTAL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subjectsRegistry.map((sub) => {
+                        if (activeClass === "P6" && sub.id === "french") return null;
+                        const isFrenchP1P5 = sub.id === "french" && activeClass !== "P6";
+                        const subMax = isFrenchP1P5 ? 50 : 100;
+
+                        const mData = studentMarks[sub.id] || {};
+                        const t1 = mData[`${selectedTerm}_t1`] ?? "-";
+                        const m1 = mData[`${selectedTerm}_m1`] ?? "-";
+                        const t2 = mData[`${selectedTerm}_t2`] ?? "-";
+                        const m2 = mData[`${selectedTerm}_m2`] ?? "-";
+
+                        const v1 = t1 !== "-" ? Number(t1) : 0;
+                        const v2 = m1 !== "-" ? Number(m1) : 0;
+                        const v3 = t2 !== "-" ? Number(t2) : 0;
+                        const v4 = m2 !== "-" ? Number(m2) : 0;
+
+                        let scoreRowTotal = 0;
+                        if (reportMode === "mid1") scoreRowTotal = v1 + v2;
+                        else if (reportMode === "mid2") scoreRowTotal = v3 + v4;
+                        else scoreRowTotal = v1 + v2 + v3 + v4;
+
+                        const hasMarks = t1 !== "-" || m1 !== "-" || t2 !== "-" || m2 !== "-";
+
+                        return (
+                          <tr key={sub.id} className="border-b-2 border-black text-gray-900 text-[13px] font-black">
+                            <td className="p-2.5 py-3 border-r-4 border-black text-left font-black text-blue-950 uppercase">{sub.name}</td>
+                            {reportMode === "mid1" && (
+                              <>
+                                <td className="p-2.5 border-r-2 border-black text-gray-500">{t1}</td>
+                                <td className="p-2.5 border-r-4 border-black text-gray-500">{m1}</td>
+                              </>
+                            )}
+                            {reportMode === "mid2" && (
+                              <>
+                                <td className="p-2.5 border-r-2 border-black text-gray-500">{t2}</td>
+                                <td className="p-2.5 border-r-4 border-black text-gray-500">{m2}</td>
+                              </>
+                            )}
+                            {reportMode === "summation" && (
+                              <>
+                                <td className="p-2.5 border-r-2 border-black text-gray-500">{t1}</td>
+                                <td className="p-2.5 border-r-2 border-black text-gray-500">{m1}</td>
+                                <td className="p-2.5 border-r-2 border-black text-gray-500">{t2}</td>
+                                <td className="p-2.5 border-r-4 border-black text-gray-500">{m2}</td>
+                              </>
+                            )}
+                            <td className="p-2.5 font-black text-blue-900 bg-gray-50">
+                              {hasMarks ? `${scoreRowTotal} / ${subMax}` : "-"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      
+                      {/* Calculation Rows */}
+                      <tr className="bg-blue-50/80 font-black text-blue-950 border-t-4 border-black text-xs">
+                        <td colSpan={reportMode === "summation" ? 2 : 1} className="p-3 border-r-4 border-black text-center uppercase text-[10px]">
+                          TOTAL SCORE: <span className="text-blue-900 text-sm block mt-0.5 font-mono">{student.totalAcquiredMarks} / {student.totalMaxPossible}</span>
+                        </td>
+                        <td colSpan={reportMode === "summation" ? 2 : 1} className="p-3 border-r-4 border-black text-center uppercase text-[10px]">
+                          PERCENTAGE: <span className="text-blue-900 text-sm block mt-0.5 font-mono">{student.percentage.toFixed(1)}%</span>
+                        </td>
+                        <td colSpan={2} className="p-3 text-center uppercase text-[10px]">
+                          POSITION: <span className="text-green-800 text-sm block mt-0.5 font-mono">{formatPosition(student.position)} OUT OF {students.length}</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  {/* Comments Block Layout */}
+                  <div className="space-y-1 text-left flex-grow">
+                    <span className="text-blue-950 font-black uppercase text-[11px]">Class Teacher's Comments & Observations:</span>
+                    <div className="border-4 border-black rounded-xl p-4 bg-gray-50 font-black text-gray-900 text-[12px] italic leading-relaxed min-h-[90px]">
+                      "{getAutomaticComment(student.percentage, student.totalMaxPossible, studentMarks)}"
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Authority Stamps & Signatures Footer Area */}
+                <div className="grid grid-cols-2 gap-8 pt-4 border-t-4 border-dashed border-gray-400 font-black items-end mt-auto">
                   <div>
-                    <span className="text-gray-400 uppercase tracking-wider block mb-0.5">Class Teacher Name:</span>
-                    <div className="text-xs uppercase text-blue-900 tracking-wide font-black print-teacher-line">
-                      {classTeacherName || "NOT ASSIGNED"}
+                    <span className="text-gray-400 uppercase tracking-widest block text-[9px]">Class Teacher:</span>
+                    <div className="h-9 flex items-end text-sm uppercase text-blue-900 font-black">
+                      {classTeacherName || "MUPENZI AKILI BERTIN"}
                     </div>
                   </div>
-                  <div className="border border-dashed border-gray-400 rounded px-5 py-1.5 bg-gray-50 text-gray-400 uppercase tracking-widest text-[8px]">
-                    School Stamp Area
+                  <div className="flex flex-col items-end">
+                    <span className="text-gray-400 uppercase tracking-widest block text-[9px] text-right w-40 mb-1">Official School Authority:</span>
+                    <div className="border-4 border-dashed border-gray-400 rounded-xl w-36 h-16 flex items-center justify-center bg-gray-50 text-[9px] uppercase text-gray-400 font-black">
+                      School Stamp Only
+                    </div>
                   </div>
                 </div>
 
@@ -613,7 +463,7 @@ function ReportCardsEngine() {
 
 export default function ReportCardsPage() {
   return (
-    <Suspense fallback={<div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest animate-pulse">Initializing Layout System Container...</div>}>
+    <Suspense fallback={<div className="text-center font-black p-10 text-blue-900 text-xs tracking-widest">Loading Report Hub Layout Matrix...</div>}>
       <ReportCardsEngine />
     </Suspense>
   );

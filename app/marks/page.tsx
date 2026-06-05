@@ -7,18 +7,16 @@ import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase
 
 export default function MarksPage() {
   const [user, setUser] = useState<any>(null);
-  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "" });
+  const [config, setConfig] = useState<any>({ classes: [], classTeacherOf: "", name: "" });
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedTerm, setSelectedTerm] = useState("ACADEMIC TERM 1");
   const [students, setStudents] = useState<any[]>([]);
   const [outOf, setOutOf] = useState(50);
   
-  // Academic marks state matrix
+  // States for live data tracking
   const [academicMarks, setAcademicMarks] = useState<Record<string, any>>({});
-  // View mode switcher: "academic" or "cocurricular"
   const [entryMode, setEntryMode] = useState<"academic" | "cocurricular">("academic");
-  // Co-curricular marks matrix state
   const [coCurricularMarks, setCoCurricularMarks] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -29,50 +27,66 @@ export default function MarksPage() {
         if (snap.exists()) {
           const d = snap.data(); 
           
-          // Fallback parsing to support both raw strings and your nested object database structure
-          const extractedClasses = Array.isArray(d.classes) 
-            ? d.classes.map((item: any) => typeof item === 'object' ? item.class : item)
-            : [];
-            
-          const extractedSubjects = Array.isArray(d.classes)
-            ? d.classes.map((item: any) => typeof item === 'object' ? item.subject : "")
-            : [];
+          // CRITICAL FIX: Loop through root keys (0, 1, 2...) to find class/subject assignments
+          const parsedAssignments: Array<{ class: string; subject: string }> = [];
+          Object.keys(d).forEach((key) => {
+            if (!isNaN(Number(key)) && d[key] && typeof d[key] === "object") {
+              if (d[key].class && d[key].subject) {
+                parsedAssignments.push({
+                  class: d[key].class,
+                  subject: d[key].subject
+                });
+              }
+            }
+          });
 
-          const unifiedClasses = [...new Set(extractedClasses.filter(Boolean))];
-          if (d.classTeacherOf && !unifiedClasses.includes(d.classTeacherOf)) {
-            unifiedClasses.push(d.classTeacherOf);
+          // Fallback check if assignments are empty, try checking array fields
+          if (parsedAssignments.length === 0 && Array.isArray(d.classes)) {
+            d.classes.forEach((item: any) => {
+              if (item && typeof item === "object" && item.class) {
+                parsedAssignments.push({ class: item.class, subject: item.subject || "Kinyarwanda" });
+              } else if (typeof item === "string") {
+                parsedAssignments.push({ class: item, subject: "Kinyarwanda" });
+              }
+            });
+          }
+
+          // Build unique list of streams for the select dropdown menu
+          const pureStreams = parsedAssignments.map(a => a.class);
+          const uniqueStreams = [...new Set(pureStreams.filter(Boolean))];
+          
+          if (d.classTeacherOf && !uniqueStreams.includes(d.classTeacherOf)) {
+            uniqueStreams.push(d.classTeacherOf);
           }
 
           setConfig({
             name: d.name || "BIZIMANA FELIX",
-            classes: unifiedClasses,
-            rawAssignments: Array.isArray(d.classes) ? d.classes : [],
+            classes: uniqueStreams,
+            assignments: parsedAssignments,
             classTeacherOf: d.classTeacherOf || ""
           });
           
-          const initialClass = unifiedClasses[0] || d.classTeacherOf || "";
-          setSelectedClass(initialClass);
-          
-          // Extract the first assigned subject for that specific initial class
-          if (Array.isArray(d.classes)) {
-            const firstMatch = d.classes.find((item: any) => typeof item === 'object' && item.class === initialClass);
-            setSelectedSubject(firstMatch ? firstMatch.subject : (extractedSubjects[0] || ""));
-          }
+          // Set initial default selections
+          const defaultClass = uniqueStreams[0] || d.classTeacherOf || "";
+          setSelectedClass(defaultClass);
+
+          const matchedAssignment = parsedAssignments.find(a => a.class === defaultClass);
+          setSelectedSubject(matchedAssignment ? matchedAssignment.subject : "Kinyarwanda");
         }
       }
     });
     return () => unsub();
   }, []);
 
-  // Update subject automatically when the user changes class stream
+  // Auto-update the active subject text field whenever a user switches class stream items
   useEffect(() => {
-    if (entryMode === "academic" && config.rawAssignments && selectedClass) {
-      const match = config.rawAssignments.find((item: any) => typeof item === 'object' && item.class === selectedClass);
-      if (match) {
+    if (entryMode === "academic" && selectedClass && config.assignments) {
+      const match = config.assignments.find((a: any) => a.class === selectedClass);
+      if (match && match.subject) {
         setSelectedSubject(match.subject);
       }
     }
-  }, [selectedClass, entryMode, config.rawAssignments]);
+  }, [selectedClass, entryMode, config.assignments]);
 
   // Synchronize stream views cleanly when switching modes
   useEffect(() => {
@@ -83,35 +97,37 @@ export default function MarksPage() {
     }
   }, [entryMode, config.classTeacherOf, config.classes]);
 
+  // Core data lookup loop fetching both students and saved evaluation values
   useEffect(() => {
     if (!selectedClass) return;
-    if (entryMode === "academic" && !selectedSubject) return;
 
-    const load = async () => {
+    const loadData = async () => {
       try {
         const snap = await getDocs(query(collection(db, "students"), where("class", "==", selectedClass)));
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
         setStudents(list);
 
         if (entryMode === "academic") {
+          if (!selectedSubject) return;
           const loadedAcademic: Record<string, any> = {};
+          
           for (const s of list) {
             const mSnap = await getDoc(doc(db, "students", s.id, "marks", selectedSubject));
             if (mSnap.exists()) {
               const m = mSnap.data();
-              // Reverse calculate the visual inputs based on the target base outOf
-              const target = selectedClass === "P6" ? 100 : 50;
-              const reverseCalc = (val: any) => {
-                if (val === undefined || val === "") return "";
-                return String(Math.round((Number(val) * outOf) / target));
+              const baseTarget = selectedClass === "P6" ? 100 : 50;
+              
+              const pullMark = (val: any) => {
+                if (val === undefined || val === null || val === "") return "";
+                return String(Math.round((Number(val) * outOf) / baseTarget));
               };
 
               loadedAcademic[s.id] = {
-                t1: reverseCalc(m.t1),
-                m1: reverseCalc(m.m1),
-                t2: reverseCalc(m.t2),
-                m2: reverseCalc(m.m2),
-                exam: reverseCalc(m.exam)
+                t1: pullMark(m.t1),
+                m1: pullMark(m.m1),
+                t2: pullMark(m.t2),
+                m2: pullMark(m.m2),
+                exam: pullMark(m.exam)
               };
             } else {
               loadedAcademic[s.id] = { t1: "", m1: "", t2: "", m2: "", exam: "" };
@@ -145,10 +161,10 @@ export default function MarksPage() {
           setCoCurricularMarks(loadedCoCurricular);
         }
       } catch (err) {
-        console.error(err);
+        console.error("Database initialization failed: ", err);
       }
     };
-    load();
+    loadData();
   }, [selectedClass, selectedSubject, entryMode, outOf]);
 
   const changeAcademicValue = (studentId: string, field: string, val: string) => {
@@ -163,9 +179,9 @@ export default function MarksPage() {
 
   const saveAcademic = async (sid: string, field: string, val: string) => {
     if (!val && val !== "0") return;
-    const target = selectedClass === "P6" ? 100 : 50;
-    const final = Math.round((Number(val) / outOf) * target);
-    await setDoc(doc(db, "students", sid, "marks", selectedSubject), { [field]: final }, { merge: true });
+    const baseTarget = selectedClass === "P6" ? 100 : 50;
+    const finalCalculatedMark = Math.round((Number(val) / outOf) * baseTarget);
+    await setDoc(doc(db, "students", sid, "marks", selectedSubject), { [field]: finalCalculatedMark }, { merge: true });
   };
 
   const saveCoCurricularField = async (studentId: string, activityType: "sport" | "creative_art", fieldPart: "p1" | "p2", rawValue: string) => {
@@ -230,7 +246,7 @@ export default function MarksPage() {
       <div className="max-w-[1400px] mx-auto px-6 mt-6">
         
         {/* DROPDOWN FILTER CARD CONTAINER */}
-        <div className="bg-white rounded-2xl border-2 border-slate-900 p-6 shadow-sm mb-6 flex gap-6">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm mb-6 flex gap-6">
           <div className="flex-1">
             <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">TARGET MATRIX STREAM</label>
             {entryMode === "academic" ? (
@@ -240,10 +256,10 @@ export default function MarksPage() {
                 className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
               >
                 {config.classes.map((c: string) => {
-                  const assignment = config.rawAssignments.find((a: any) => typeof a === 'object' && a.class === c);
-                  const subjName = assignment ? assignment.subject : "SUBJECT";
+                  const match = config.assignments?.find((a: any) => a.class === c);
+                  const subjDisplay = match ? match.subject : "Kinyarwanda";
                   return (
-                    <option key={c} value={c}>CLASS STREAM {c} — {subjName.toUpperCase()}</option>
+                    <option key={c} value={c}>CLASS STREAM {c} — {subjDisplay.toUpperCase()}</option>
                   );
                 })}
               </select>
@@ -269,7 +285,7 @@ export default function MarksPage() {
         </div>
 
         {/* MAIN ROSTER DASHBOARD COMPONENT */}
-        <div className="bg-white rounded-2xl border-2 border-slate-900 p-6 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-900 p-6 shadow-sm overflow-hidden">
           <div className="flex justify-between items-center mb-6">
             <div>
               <h2 className="text-[#11224D] text-md font-black uppercase tracking-wide">

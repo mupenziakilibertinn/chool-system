@@ -1,476 +1,367 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { db } from "../../lib/firebase";
-import { collection, getDocs, doc, setDoc, query, where } from "firebase/firestore";
-import { useRouter } from "next/navigation";
+import { db, auth } from "../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase/firestore";
 
-export default function MarksEntryPage() {
-  const router = useRouter();
-  const [userEmail, setUserEmail] = useState("");
-  const [teacherData, setTeacherData] = useState<any>(null);
-  const [selectedAlloc, setSelectedAlloc] = useState<any>(null);
-  const [selectedTerm, setSelectedTerm] = useState("term1");
+export default function MarksPage() {
+  const [user, setUser] = useState<any>(null);
+  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "BIZIMANA FELIX" });
+  const [selectedClass, setSelectedClass] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedTerm, setSelectedTerm] = useState("ACADEMIC TERM 1");
   const [students, setStudents] = useState<any[]>([]);
-  const [marks, setMarks] = useState<any>({});
-  const [loading, setLoading] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [outOf, setOutOf] = useState(50);
+  
+  // View mode switcher: "academic" or "cocurricular"
+  const [entryMode, setEntryMode] = useState<"academic" | "cocurricular">("academic");
+  // Co-curricular marks matrix state
+  const [coCurricularMarks, setCoCurricularMarks] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedEmail = localStorage.getItem("teacherEmail");
-      if (savedEmail) {
-        setUserEmail(savedEmail.trim().toLowerCase());
-        verifyTeacherPermission(savedEmail.trim().toLowerCase());
-      } else {
-        setAuthLoading(false);
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (u?.email) {
+        setUser(u);
+        const snap = await getDoc(doc(db, "teachers", u.email.toLowerCase()));
+        if (snap.exists()) {
+          const d = snap.data(); 
+          
+          const combinedClasses = [...(d.classes || [])];
+          if (d.classTeacherOf && !combinedClasses.includes(d.classTeacherOf)) {
+            combinedClasses.push(d.classTeacherOf);
+          }
+
+          setConfig({
+            ...d,
+            classes: combinedClasses,
+            classTeacherOf: d.classTeacherOf || ""
+          });
+          
+          setSelectedClass(d.classes[0] || d.classTeacherOf || ""); 
+          setSelectedSubject(d.subjects?.[0] || "");
+        }
       }
-    }
+    });
+    return () => unsub();
   }, []);
 
-  const verifyTeacherPermission = async (email: string) => {
-    setAuthLoading(true);
-    try {
-      const tSnap = await getDocs(collection(db, "teachers"));
-      const match = tSnap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .find((t: any) => t.email?.trim().toLowerCase() === email.trim().toLowerCase());
-      if (match) {
-        setTeacherData(match);
-        if ((match as any).allocations && (match as any).allocations.length > 0) {
-          setSelectedAlloc((match as any).allocations[0]);
-        }
-      } else {
-        alert(" 🚫  ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
-        localStorage.removeItem("teacherEmail");
-      }
-    } catch (err) {
-      console.error(err);
+  // Handle switching view logic cleanly
+  useEffect(() => {
+    if (entryMode === "cocurricular" && config.classTeacherOf) {
+      setSelectedClass(config.classTeacherOf);
+    } else if (entryMode === "academic" && config.classes.length > 0) {
+      setSelectedClass(config.classes[0]);
     }
-    setAuthLoading(false);
-  };
+  }, [entryMode, config.classTeacherOf]);
 
   useEffect(() => {
-    if (selectedAlloc) {
-      setValidationError(null);
-      fetchStudentRoster();
-    }
-  }, [selectedAlloc, selectedTerm]);
+    if (!selectedClass) return;
+    if (entryMode === "academic" && !selectedSubject) return;
 
-  const fetchStudentRoster = async () => {
-    setLoading(true);
-    try {
-      const sSnap = await getDocs(query(collection(db, "students"), where("class", "==", selectedAlloc.class)));
-      const sortedStudents = sSnap.docs
-        .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
-        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      setStudents(sortedStudents);
-
-      let loadedMarks: any = {};
-      await Promise.all(sortedStudents.map(async (student) => {
-        const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
-        mSnap.forEach((docSnap) => {
-          if (docSnap.id === selectedAlloc.subject) {
-            loadedMarks[student.id] = docSnap.data();
-          }
-        });
-      }));
-      setMarks(loadedMarks);
-    } catch (err) {
-      console.error(err);
-    }
-    setLoading(false);
-  };
-
-  // Dynamic parameters helper configuration functions
-  const isFrench = selectedAlloc?.subject?.toUpperCase().trim() === "FRENCH";
-  const isP6 = selectedAlloc?.class?.toUpperCase().trim() === "P6";
-  const isFrenchP1P5 = isFrench && !isP6;
-
-  const getCellConfiguration = (assessmentKey: string) => {
-    if (assessmentKey === "exam") {
-      const maxVal = isFrenchP1P5 ? 25 : 50;
-      return {
-        maxMarkValue: maxVal,
-        maxMarkLabel: `/${maxVal}`,
-        passMarkValue: maxVal / 2
-      };
-    }
-    // Fallback configurations for TEST 1, MID 1, TEST 2, MID 2 rows
-    const maxVal = isFrenchP1P5 ? 25 : 50;
-    return {
-      maxMarkValue: maxVal,
-      maxMarkLabel: `/${maxVal}`,
-      passMarkValue: maxVal / 2
-    };
-  };
-
-  const handleMarkChange = (studentId: string, assessmentKey: string, value: string) => {
-    setValidationError(null);
-    const { maxMarkValue } = getCellConfiguration(assessmentKey);
-
-    if (value !== "") {
-      const numValue = Number(value);
-      if (numValue > maxMarkValue || numValue < 0) {
-        setValidationError(` ❌  ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
-        return;
-      }
-    }
-    setMarks((prev: any) => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        [`${selectedTerm}_${assessmentKey}`]: value
-      }
-    }));
-  };
-
-  const handleExcelPaste = (e: React.ClipboardEvent<HTMLInputElement>, studentIndex: number, assessmentKey: string) => {
-    e.preventDefault();
-    setValidationError(null);
-    const { maxMarkValue } = getCellConfiguration(assessmentKey);
-
-    const pastedData = e.clipboardData.getData("text");
-    const rows = pastedData.split(/\r?\n/).map(row => row.trim()).filter(row => row !== "");
-    if (rows.length > 0) {
-      const hasBadValues = rows.some(val => val !== "" && (Number(val) > maxMarkValue || Number(val) < 0));
-
-      if (hasBadValues) {
-        setValidationError(` 🚫  PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
-        return;
-      }
-      const updatedMarks = { ...marks };
-      rows.forEach((value, offset) => {
-        const targetStudent = students[studentIndex + offset];
-        if (targetStudent) {
-          if (!updatedMarks[targetStudent.id]) updatedMarks[targetStudent.id] = {};
-          updatedMarks[targetStudent.id][`${selectedTerm}_${assessmentKey}`] = value;
-        }
-      });
-      setMarks(updatedMarks);
-    }
-  };
-
-  const handleColumnAction = async (assessmentKey: string, actionType: "copy" | "cut" | "clear") => {
-    setValidationError(null);
-
-    const targetScores = students.map(student => {
-      const score = marks[student.id]?.[`${selectedTerm}_${assessmentKey}`];
-      return score !== undefined && score !== null ? String(score) : "";
-    });
-    const columnTextTextareaFormat = targetScores.join("\n");
-    if (actionType === "copy" || actionType === "cut") {
+    const load = async () => {
       try {
-        await navigator.clipboard.writeText(columnTextTextareaFormat);
-        alert(` 📋  Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
+        const snap = await getDocs(query(collection(db, "students"), where("class", "==", selectedClass)));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+        setStudents(list);
+
+        if (entryMode === "academic") {
+          for (const s of list) {
+            const mSnap = await getDoc(doc(db, "students", s.id, "marks", selectedSubject));
+            if (mSnap.exists()) {
+              const m = mSnap.data();
+              ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
+                const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
+                if (el) el.value = m[f] !== undefined ? m[f] : "";
+              });
+            } else {
+              ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
+                const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
+                if (el) el.value = "";
+              });
+            }
+          }
+        } else {
+          const loadedCoCurricular: Record<string, any> = {};
+          for (const s of list) {
+            loadedCoCurricular[s.id] = {
+              sport_p1: "", sport_p2: "", sport_total: 0,
+              art_p1: "", art_p2: "", art_total: 0
+            };
+
+            const sportSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "sport"));
+            if (sportSnap.exists()) {
+              const data = sportSnap.data();
+              loadedCoCurricular[s.id].sport_p1 = data.p1 !== undefined ? data.p1 : "";
+              loadedCoCurricular[s.id].sport_p2 = data.p2 !== undefined ? data.p2 : "";
+              loadedCoCurricular[s.id].sport_total = Number(data.p1 || 0) + Number(data.p2 || 0);
+            }
+
+            const artSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "creative_art"));
+            if (artSnap.exists()) {
+              const data = artSnap.data();
+              loadedCoCurricular[s.id].art_p1 = data.p1 !== undefined ? data.p1 : "";
+              loadedCoCurricular[s.id].art_p2 = data.p2 !== undefined ? data.p2 : "";
+              loadedCoCurricular[s.id].art_total = Number(data.p1 || 0) + Number(data.p2 || 0);
+            }
+          }
+          setCoCurricularMarks(loadedCoCurricular);
+        }
       } catch (err) {
-        alert("Clipboard hardware access failed.");
+        console.error(err);
       }
-    }
-    if (actionType === "cut" || actionType === "clear") {
-      const updatedMarks = { ...marks };
-      students.forEach(student => {
-        if (!updatedMarks[student.id]) updatedMarks[student.id] = {};
-        updatedMarks[student.id][`${selectedTerm}_${assessmentKey}`] = "";
-      });
-      setMarks(updatedMarks);
-    }
-  };
-
-  const getAssessmentMetrics = (assessmentKey: string) => {
-    const { maxMarkValue, passMarkValue } = getCellConfiguration(assessmentKey);
-    let totals = 0;
-    let counted = 0;
-    let passes = 0;
-    let high = -1;
-    let low = maxMarkValue + 1;
-
-    students.forEach(s => {
-      const markStr = marks[s.id]?.[`${selectedTerm}_${assessmentKey}`];
-      if (markStr !== undefined && markStr !== null && markStr !== "") {
-        const val = Number(markStr);
-        totals += val;
-        counted++;
-        if (val >= passMarkValue) passes++;
-        if (val > high) high = val;
-        if (val < low) low = val;
-      }
-    });
-    return {
-      avg: counted > 0 ? (totals / counted).toFixed(1) : "-",
-      passRate: counted > 0 ? ((passes / counted) * 100).toFixed(0) : "-",
-      highest: high !== -1 ? high : "-",
-      lowest: low !== maxMarkValue + 1 ? low : "-",
-      totalCounted: counted
     };
+    load();
+  }, [selectedClass, selectedSubject, entryMode]);
+
+  const saveAcademic = async (sid: string, field: string, val: string) => {
+    if (!val) return;
+    const target = selectedClass === "P6" ? 100 : 50;
+    const final = Math.round((Number(val) / outOf) * target);
+    await setDoc(doc(db, "students", sid, "marks", selectedSubject), { [field]: final }, { merge: true });
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, studentIndex: number, assessmentKey: string) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const nextInput = document.querySelector(
-        `input[data-student-idx="${studentIndex + 1}"][data-assessment="${assessmentKey}"]`
-      ) as HTMLInputElement;
-      if (nextInput) {
-        nextInput.focus();
-        nextInput.select();
-      }
-    }
-  };
-
-  const handleSaveMarks = async () => {
-    if (validationError) {
-      alert(" ⚠️  Cannot save marks sheet while configuration errors are present on screen.");
+  const saveCoCurricularField = async (studentId: string, activityType: "sport" | "creative_art", fieldPart: "p1" | "p2", rawValue: string) => {
+    const numVal = rawValue === "" ? "" : Number(rawValue);
+    
+    if (rawValue !== "" && (Number(rawValue) > 5 || Number(rawValue) < 0)) {
+      alert("⚠️ Invalid Input! Marks must be between 0 and 5.");
       return;
     }
-    setLoading(true);
-    try {
-      await Promise.all(students.map(async (student) => {
-        const studentMarkData = marks[student.id] || {};
-        const docRef = doc(db, "students", student.id, "marks", selectedAlloc.subject);
-        await setDoc(docRef, studentMarkData, { merge: true });
-      }));
-      alert(" ✅  MARKS PORTAL BACKEND SAVED SUCCESSFULLY!");
-    } catch (err) {
-      alert("Failed to secure marks matrix changes.");
-    }
-    setLoading(false);
+
+    setCoCurricularMarks(prev => {
+      const currentStudentData = prev[studentId] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
+      const updated = { ...currentStudentData };
+      
+      if (activityType === "sport") {
+        if (fieldPart === "p1") updated.sport_p1 = rawValue;
+        if (fieldPart === "p2") updated.sport_p2 = rawValue;
+        updated.sport_total = Number(updated.sport_p1 || 0) + Number(updated.sport_p2 || 0);
+      } else {
+        if (fieldPart === "p1") updated.art_p1 = rawValue;
+        if (fieldPart === "p2") updated.art_p2 = rawValue;
+        updated.art_total = Number(updated.art_p1 || 0) + Number(updated.art_p2 || 0);
+      }
+
+      return { ...prev, [studentId]: updated };
+    });
+
+    const dbPayload = fieldPart === "p1" ? { p1: numVal } : { p2: numVal };
+    await setDoc(doc(db, "students", studentId, "co_curricular", activityType), dbPayload, { merge: true });
   };
 
-  if (authLoading) return <div className="text-center font-black p-10 text-blue-900 text-xs uppercase">Verifying Instructor Record...</div>;
+  if (!user) return <div className="p-10 font-black uppercase text-xs tracking-widest text-center text-blue-900">Checking credentials...</div>;
 
-  if (!teacherData) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 text-xs font-black text-gray-700">
-        <div className="bg-white p-6 rounded-2xl border-2 max-w-sm w-full space-y-4 shadow-sm">
-          <div className="text-center uppercase text-blue-900 font-black tracking-wider border-b pb-2">NGS Teacher System Login</div>
-          <div>
-            <label className="block mb-1 text-[9px] text-gray-400 uppercase">Registered Work Email</label>
-            <input
-              type="email"
-              value={userEmail}
-              onChange={(e) => setUserEmail(e.target.value)}
-              placeholder="mukarukundo@gmail.com"
-              className="w-full border-2 p-3 rounded-xl font-bold lowercase"
-            />
-          </div>
-          <button
-            onClick={() => {
-              if (userEmail) {
-                localStorage.setItem("teacherEmail", userEmail.trim().toLowerCase());
-                verifyTeacherPermission(userEmail.trim().toLowerCase());
-              }
-            }}
-            className="w-full bg-blue-900 text-white py-3 rounded-xl uppercase tracking-wider text-[10px]"
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-xs pb-12">
+      
+      {/* AUTH & PROFILE HEADER BAR */}
+      <div className="bg-[#11224D] text-white px-8 py-4 flex justify-between items-center shadow-md">
+        <div>
+          <div className="text-[10px] uppercase font-black text-blue-400 tracking-wider">ACTIVE INSTRUCTOR</div>
+          <div className="text-lg font-black tracking-wide uppercase">{config.name || "BIZIMANA FELIX"}</div>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Layout Mode Control Trigger Switch */}
+          <button 
+            onClick={() => setEntryMode(entryMode === "academic" ? "cocurricular" : "academic")}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow border border-emerald-500 transition-all"
           >
-            Access My Marks Sheet
+            {entryMode === "academic" ? "🏆 Go to Co-Curricular" : "📖 Go to Academic Marks"}
+          </button>
+
+          {config.classTeacherOf && (
+            <button className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
+              OBSERVE MY CLASS REPORTS 📋 (STREAM {config.classTeacherOf})
+            </button>
+          )}
+          <button className="bg-[#8B1E1E] hover:bg-red-800 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
+            SIGN OUT
           </button>
         </div>
       </div>
-    );
-  }
 
-  const assessmentsList = ["t1", "m1", "t2", "m2", "exam"];
-  const assessmentLabels: Record<string, string> = { 
-    t1: "TEST 1", 
-    m1: "MID 1", 
-    t2: "TEST 2", 
-    m2: "MID 2", 
-    exam: "FINAL EXAM" 
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50 text-xs font-sans pb-32 text-gray-800">
-      <div className="bg-blue-950 text-white p-4 font-black shadow">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
-          <div>
-            <span className="text-[9px] text-blue-300 uppercase block tracking-wider">ACTIVE INSTRUCTOR</span>
-            <h1 className="text-sm uppercase tracking-wide">{teacherData.name}</h1>
-          </div>
-          <div className="flex gap-2">
-            {teacherData.classTeacherOf && (
-              <button
-                onClick={() => router.push(`/reports?class=${teacherData.classTeacherOf}`)}
-                className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg uppercase text-[9px] tracking-wider transition-all"
+      <div className="max-w-[1400px] mx-auto px-6 mt-6">
+        
+        {/* DROPDOWN FILTER CARD CONTAINER */}
+        <div className="bg-white rounded-2xl border-2 border-slate-900 p-6 shadow-sm mb-6 flex gap-6">
+          <div className="flex-1">
+            <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">TARGET MATRIX STREAM</label>
+            {entryMode === "academic" ? (
+              <select 
+                value={selectedClass} 
+                onChange={(e) => setSelectedClass(e.target.value)}
+                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900定位 outline-none cursor-pointer"
               >
-                Observe My Class Reports  📋  (Stream {teacherData.classTeacherOf})
-              </button>
+                {config.classes.map((c: string) => (
+                  <option key={c} value={c}>CLASS STREAM {c} — {selectedSubject || "KINYARWANDA"}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="w-full bg-slate-100 text-slate-800 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-dashed border-slate-400">
+                CO-CURRICULAR FIELD MATRIX — STREAM {config.classTeacherOf} ONLY
+              </div>
             )}
-            <button
-              onClick={() => {
-                localStorage.removeItem("teacherEmail");
-                window.location.reload();
-              }}
-              className="bg-red-900 text-white px-3 py-1.5 rounded-lg uppercase text-[9px]"
-            >
-              Sign Out
-            </button>
           </div>
-        </div>
-      </div>
-      <div className="max-w-6xl mx-auto p-4 mt-4 space-y-6">
-        <div className="bg-white border-2 p-4 rounded-2xl shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-4 font-black">
-          <div>
-            <label className="block text-[9px] text-gray-400 uppercase mb-1">Target Matrix Stream</label>
-            <select
-              value={selectedAlloc ? JSON.stringify(selectedAlloc) : ""}
-              onChange={(e) => setSelectedAlloc(JSON.parse(e.target.value))}
-              className="w-full p-2.5 bg-white border-2 rounded-xl font-black uppercase text-xs"
-            >
-              {teacherData.allocations?.map((a: any, index: number) => (
-                <option key={index} value={JSON.stringify(a)}>Class Stream {a.class} — {a.subject}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[9px] text-gray-400 uppercase mb-1">Assessment Target Term</label>
-            <select
+
+          <div className="flex-1">
+            <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">ASSESSMENT TARGET TERM</label>
+            <select 
               value={selectedTerm}
               onChange={(e) => setSelectedTerm(e.target.value)}
-              className="w-full p-2.5 bg-white border-2 rounded-xl font-black uppercase text-xs"
+              className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
             >
-              <option value="term1">Academic Term 1</option>
-              <option value="term2">Academic Term 2</option>
-              <option value="term3">Academic Term 3</option>
+              <option value="ACADEMIC TERM 1">ACADEMIC TERM 1</option>
+              <option value="ACADEMIC TERM 2">ACADEMIC TERM 2</option>
+              <option value="ACADEMIC TERM 3">ACADEMIC TERM 3</option>
             </select>
           </div>
         </div>
-        {selectedAlloc && (
-          <div className="bg-white border-2 rounded-2xl shadow-sm p-5 space-y-4">
-            <div className="flex justify-between items-center border-b pb-2 gap-4 flex-wrap">
-              <div>
-                <h2 className="font-black text-blue-950 uppercase text-xs">MARKS GRADING DASHBOARD</h2>
-                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Stream {selectedAlloc.class} Level • {selectedAlloc.subject}</p>
-                <p className="text-[9px] text-green-600 font-bold uppercase"> 💡  Click top input, paste whole column from Excel, use Enter key to navigate!</p>
-              </div>
-              <button
-                onClick={handleSaveMarks}
-                disabled={loading || !!validationError}
-                className={`font-black text-[10px] uppercase px-5 py-2.5 rounded-xl transition-all shadow text-white ${
-                  validationError ? "bg-gray-400 cursor-not-allowed" : "bg-green-700 hover:bg-green-800"
-                }`}
-              >
-                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS  💾 "}
-              </button>
+
+        {/* MAIN ROSTER DASHBOARD COMPONENT */}
+        <div className="bg-white rounded-2xl border-2 border-slate-900 p-6 shadow-sm overflow-hidden">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h2 className="text-[#11224D] text-md font-black uppercase tracking-wide">
+                {entryMode === "academic" ? "MARKS GRADING DASHBOARD" : "CO-CURRICULAR SKILLS EVALUATION"}
+              </h2>
+              <p className="text-[10px] text-slate-500 uppercase font-bold mt-0.5">
+                {entryMode === "academic" 
+                  ? `STREAM ${selectedClass} LEVEL • ${selectedSubject || "KINYARWANDA"}` 
+                  : `STREAM ${config.classTeacherOf} SPECIALIZED CO-CURRICULAR TRACK`}
+              </p>
+              <p className="text-emerald-600 text-[10px] font-bold uppercase mt-1">
+                💡 CLICK TOP INPUT, PASTE WHOLE COLUMN FROM EXCEL, USE ENTER KEY TO NAVIGATE!
+              </p>
             </div>
-            {validationError && (
-              <div className="bg-rose-50 border-2 border-rose-300 p-3.5 rounded-xl font-black text-rose-700 text-xs uppercase tracking-wide">
-                {validationError}
-              </div>
+
+            {entryMode === "academic" ? (
+              <button className="bg-[#00875A] hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
+                COMMIT & LOCK TERM MARKS 💾
+              </button>
+            ) : (
+              <span className="bg-emerald-50 border border-emerald-300 text-emerald-800 font-black text-[10px] tracking-wider px-4 py-2.5 rounded-xl uppercase">
+                ★ SCALE RANGE MAPPED: 5 + 5 = 10 MAX MARKS PER COLUMN
+              </span>
             )}
-            <div className="overflow-x-auto">
-              <table className="w-full text-center border-collapse border-2 border-black font-black text-xs min-w-[700px]">
-                <thead className="bg-gray-100 border-b-2 border-black uppercase text-[9px] tracking-wider">
+          </div>
+
+          {/* EVALUATION MATRIX DATA GRID */}
+          <div className="border-2 border-slate-900 overflow-hidden">
+            {entryMode === "academic" ? (
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 uppercase text-[10px] font-black text-slate-800 border-b-2 border-slate-900">
                   <tr>
-                    <th className="p-3 text-left w-[25%] border-r border-black align-middle">STUDENT REGISTER ENTRY</th>
-                    {assessmentsList.map((key) => {
-                      const { maxMarkLabel: currentLabel } = getCellConfiguration(key);
-                      return (
-                        <th key={key} className="p-2 border-r border-black w-[15%]">
-                          <div className="text-gray-900 text-[10px]">{assessmentLabels[key]} ({currentLabel})</div>
-                          <div className="flex items-center justify-center gap-1 mt-1.5 font-bold text-[8px] tracking-tight">
-                            <button
-                              type="button"
-                              onClick={() => handleColumnAction(key, "copy")}
-                              className="bg-blue-50 border text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-100 transition-colors"
-                              title="Copy entire column array"
-                            >
-                              COPY
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleColumnAction(key, "cut")}
-                              className="bg-amber-50 border text-amber-700 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors"
-                              title="Cut column array"
-                            >
-                              CUT
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if(confirm(`Wipe out all marks entries inside ${assessmentLabels[key]}?`)) {
-                                  handleColumnAction(key, "clear");
-                                }
-                              }}
-                              className="bg-rose-50 border text-rose-700 px-1 py-0.5 rounded hover:bg-rose-100 transition-colors"
-                              title="Wipe entire data collection column"
-                            >
-                              CLEAR
-                            </button>
-                          </div>
-                        </th>
-                      );
-                    })}
+                    <th className="p-4 border-r border-slate-300 w-2/5">STUDENT REGISTER ENTRY</th>
+                    {["TEST 1 (/50)", "MID 1 (/50)", "TEST 2 (/50)", "MID 2 (/50)", "FINAL EXAM (/50)"].map(h => (
+                      <th key={h} className="border-r border-slate-300 p-2 text-center align-top">
+                        <div className="mb-2">{h}</div>
+                        <div className="flex items-center justify-center gap-1 font-sans text-[8px]">
+                          <span className="px-1 py-0.5 border border-blue-400 text-blue-600 rounded bg-white cursor-pointer hover:bg-blue-50">COPY</span>
+                          <span className="px-1 py-0.5 border border-amber-400 text-amber-600 rounded bg-white cursor-pointer hover:bg-amber-50">CUT</span>
+                          <span className="px-1 py-0.5 border border-red-400 text-red-500 rounded bg-white cursor-pointer hover:bg-red-50">CLEAR</span>
+                        </div>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody>
-                  {students.map((student, idx) => {
-                    const studentRecord = marks[student.id] || {};
+                <tbody className="divide-y divide-slate-300">
+                  {students.map((s, idx) => (
+                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-4 font-black uppercase border-r border-slate-300 text-[#11224D] text-sm tracking-wide">{s.name}</td>
+                      {["t1", "m1", "t2", "m2", "exam"].map(f => (
+                        <td key={f} className="p-2 border-r border-slate-300">
+                          <input 
+                            id={`${f}-${s.id}`} 
+                            type="text" 
+                            onBlur={(e) => saveAcademic(s.id, f, e.target.value)} 
+                            onKeyDown={(e) => {if(e.key==="Enter") document.getElementById(`${f}-${students[idx+1]?.id}`)?.focus();}} 
+                            className="w-[100px] mx-auto block p-2 text-center font-black rounded-lg border border-slate-400 outline-none focus:border-slate-900 text-sm shadow-sm" 
+                            placeholder="" 
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-emerald-50/60 uppercase text-[10px] font-black text-slate-800 border-b-2 border-slate-900">
+                  <tr>
+                    <th rowSpan={2} className="p-4 border-r border-slate-300 w-2/5 align-middle">STUDENT REGISTER ENTRY</th>
+                    <th colSpan={3} className="border-r border-slate-300 p-3 text-center bg-green-50 tracking-wider font-black text-green-950">SPORT ACTIVITIES</th>
+                    <th colSpan={3} className="p-3 text-center bg-teal-50 tracking-wider font-black text-teal-950">CREATIVE ARTS</th>
+                  </tr>
+                  <tr className="bg-slate-100 text-[9px] border-b-2 border-slate-900 text-slate-600">
+                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 1 (/5)</th>
+                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 2 (/5)</th>
+                    <th className="border-r border-slate-300 p-2 text-center bg-green-100/60 font-black text-green-900 w-[10%]">Total (/10)</th>
+                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 1 (/5)</th>
+                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 2 (/5)</th>
+                    <th className="p-2 text-center bg-teal-100/60 font-black text-teal-900 w-[10%]">Total (/10)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-300">
+                  {students.map((s) => {
+                    const currentMarks = coCurricularMarks[s.id] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
                     return (
-                      <tr key={student.id} className="border-b border-black font-bold h-12 text-gray-900 hover:bg-gray-50/60">
-                        <td className="p-3 text-left font-black uppercase text-blue-950 border-r border-black">{student.name}</td>
-                        {assessmentsList.map((key) => {
-                          const rawVal = studentRecord[`${selectedTerm}_${key}`];
-                          const hasMark = rawVal !== undefined && rawVal !== null && rawVal !== "";
-                          const currentVal = Number(rawVal ?? 0);
-                          
-                          const { maxMarkValue: dynamicMax, passMarkValue: dynamicPass } = getCellConfiguration(key);
-                          
-                          const isInvalid = hasMark && (currentVal > dynamicMax || currentVal < 0);
-                          const isFailing = hasMark && !isInvalid && (currentVal < dynamicPass);
-                          return (
-                            <td key={key} className="p-2 border-r border-black">
-                              <input
-                                type="number"
-                                min={0}
-                                max={dynamicMax}
-                                value={rawVal ?? ""}
-                                data-student-idx={idx}
-                                data-assessment={key}
-                                onChange={(e) => handleMarkChange(student.id, key, e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, idx, key)}
-                                onPaste={(e) => handleExcelPaste(e, idx, key)}
-                                className={`w-16 border-2 p-1 text-center font-black rounded-lg transition-all ${
-                                  isInvalid
-                                    ? "bg-rose-100 border-rose-600 text-rose-700"
-                                    : isFailing
-                                    ? "bg-amber-50 border-amber-400 text-amber-700 font-extrabold shadow-inner"
-                                    : "bg-white border-gray-300 text-gray-900"
-                                }`}
-                              />
-                            </td>
-                          );
-                        })}
+                      <tr key={s.id} className="hover:bg-emerald-50/20 transition-colors">
+                        <td className="p-4 font-black uppercase border-r border-slate-300 text-slate-900 text-sm tracking-wide">{s.name}</td>
+                        
+                        {/* SPORT SKILLS FIELD */}
+                        <td className="p-2 border-r border-slate-300">
+                          <input 
+                            type="text" 
+                            value={currentMarks.sport_p1}
+                            onChange={(e) => saveCoCurricularField(s.id, "sport", "p1", e.target.value)}
+                            className="w-[80px] mx-auto block p-2 text-center font-black rounded-lg border border-slate-400 outline-none focus:border-emerald-600 text-sm shadow-sm" 
+                            placeholder="/5" 
+                          />
+                        </td>
+                        <td className="p-2 border-r border-slate-300">
+                          <input 
+                            type="text" 
+                            value={currentMarks.sport_p2}
+                            onChange={(e) => saveCoCurricularField(s.id, "sport", "p2", e.target.value)}
+                            className="w-[80px] mx-auto block p-2 text-center font-black rounded-lg border border-slate-400 outline-none focus:border-emerald-600 text-sm shadow-sm" 
+                            placeholder="/5" 
+                          />
+                        </td>
+                        <td className="p-4 text-center font-black bg-green-50 text-green-700 text-md border-r border-slate-300">
+                          {currentMarks.sport_total}
+                        </td>
+
+                        {/* CREATIVE ART SKILLS FIELD */}
+                        <td className="p-2 border-r border-slate-300">
+                          <input 
+                            type="text" 
+                            value={currentMarks.art_p1}
+                            onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p1", e.target.value)}
+                            className="w-[80px] mx-auto block p-2 text-center font-black rounded-lg border border-slate-400 outline-none focus:border-teal-600 text-sm shadow-sm" 
+                            placeholder="/5" 
+                          />
+                        </td>
+                        <td className="p-2 border-r border-slate-300">
+                          <input 
+                            type="text" 
+                            value={currentMarks.art_p2}
+                            onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p2", e.target.value)}
+                            className="w-[80px] mx-auto block p-2 text-center font-black rounded-lg border border-slate-400 outline-none focus:border-teal-600 text-sm shadow-sm" 
+                            placeholder="/5" 
+                          />
+                        </td>
+                        <td className="p-4 text-center font-black bg-teal-50 text-teal-700 text-md">
+                          {currentMarks.art_total}
+                        </td>
                       </tr>
                     );
                   })}
-                  <tr className="bg-blue-50/50 text-[9px] font-black tracking-wide text-blue-950 border-t-2 border-black h-16">
-                    <td className="p-3 text-left font-black uppercase bg-blue-900 text-white border-r border-black">
-                      📊  COHORT LIVE INSIGHTS SUMMARY
-                    </td>
-                    {assessmentsList.map((key) => {
-                      const stats = getAssessmentMetrics(key);
-                      return (
-                        <td key={key} className="p-2 border-r border-black text-center align-middle space-y-0.5 text-[8px] leading-tight font-extrabold">
-                          {stats.totalCounted > 0 ? (
-                            <>
-                              <div className="text-blue-700">AVG: <span className="text-xs text-gray-900 font-black">{stats.avg}%</span></div>
-                              <div className="text-emerald-700">PASS: <span className="text-gray-900">{stats.passRate}%</span></div>
-                              <div className="text-gray-500">RANGE: <span className="text-gray-900">{stats.lowest} — {stats.highest}</span></div>
-                            </>
-                          ) : (
-                            <span className="text-gray-400 uppercase italic">NO ENTRIES</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
                 </tbody>
               </table>
-            </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

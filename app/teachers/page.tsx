@@ -13,9 +13,9 @@ export default function TeacherPage() {
   const [students, setStudents] = useState<any[]>([]);
   const [outOf, setOutOf] = useState(50);
   
-  // New State for Mode switching: "academic" or "cocurricular"
+  // View mode switcher: "academic" or "cocurricular"
   const [entryMode, setEntryMode] = useState<"academic" | "cocurricular">("academic");
-  // State to hold co-curricular marks from database
+  // Dedicated co-curricular state container matrix map
   const [coCurricularMarks, setCoCurricularMarks] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export default function TeacherPage() {
         if (snap.exists()) {
           const d = snap.data(); 
           
-          // Combined array ensuring classTeacherOf room is available to the drop menus
+          // Inject classTeacherOf into layout list array values securely
           const combinedClasses = [...(d.classes || [])];
           if (d.classTeacherOf && !combinedClasses.includes(d.classTeacherOf)) {
             combinedClasses.push(d.classTeacherOf);
@@ -34,87 +34,86 @@ export default function TeacherPage() {
 
           setConfig({
             ...d,
-            classes: combinedClasses
+            classes: combinedClasses,
+            classTeacherOf: d.classTeacherOf || ""
           });
-
-          setSelectedClass(d.classes[0] || d.classTeacherOf || ""); 
-          setSelectedSubject(d.subjects[0] || "");
+          
+          setSelectedClass(combinedClasses[0] || d.classTeacherOf || ""); 
+          setSelectedSubject(d.subjects?.[0] || "");
         }
       }
     });
     return () => unsub();
   }, []);
 
-  // Sync class selection rules when moving between modes
+  // Update layout targets dynamically when toggling tabs
   useEffect(() => {
     if (entryMode === "cocurricular" && config.classTeacherOf) {
       setSelectedClass(config.classTeacherOf);
     } else if (entryMode === "academic" && config.classes.length > 0) {
       setSelectedClass(config.classes[0]);
     }
-  }, [entryMode, config.classTeacherOf]);
+  }, [entryMode, config.classTeacherOf, config.classes]);
 
   useEffect(() => {
     if (!selectedClass) return;
     if (entryMode === "academic" && !selectedSubject) return;
 
     const load = async () => {
-      // Fetch students for the target class stream
-      const snap = await getDocs(query(collection(db, "students"), where("class", "==", selectedClass)));
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => a.name.localeCompare(b.name));
-      setStudents(list);
+      try {
+        const snap = await getDocs(query(collection(db, "students"), where("class", "==", selectedClass)));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+        setStudents(list);
 
-      if (entryMode === "academic") {
-        // Load Academic Marks
-        for (const s of list) {
-          const mSnap = await getDoc(doc(db, "students", s.id, "marks", selectedSubject));
-          if (mSnap.exists()) {
-            const m = mSnap.data();
-            ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
-              const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
-              if (el) el.value = m[f] !== undefined ? m[f] : "";
-            });
-          } else {
-            ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
-              const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
-              if (el) el.value = "";
-            });
+        if (entryMode === "academic") {
+          for (const s of list) {
+            const mSnap = await getDoc(doc(db, "students", s.id, "marks", selectedSubject));
+            if (mSnap.exists()) {
+              const m = mSnap.data();
+              ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
+                const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
+                if (el) el.value = m[f] !== undefined ? m[f] : "";
+              });
+            } else {
+              ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
+                const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
+                if (el) el.value = "";
+              });
+            }
           }
+        } else {
+          const loadedCoCurricular: Record<string, any> = {};
+          for (const s of list) {
+            loadedCoCurricular[s.id] = {
+              sport_p1: "", sport_p2: "", sport_total: 0,
+              art_p1: "", art_p2: "", art_total: 0
+            };
+
+            const sportSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "sport"));
+            if (sportSnap.exists()) {
+              const data = sportSnap.data();
+              loadedCoCurricular[s.id].sport_p1 = data.p1 !== undefined ? data.p1 : "";
+              loadedCoCurricular[s.id].sport_p2 = data.p2 !== undefined ? data.p2 : "";
+              loadedCoCurricular[s.id].sport_total = Number(data.p1 || 0) + Number(data.p2 || 0);
+            }
+
+            const artSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "creative_art"));
+            if (artSnap.exists()) {
+              const data = artSnap.data();
+              loadedCoCurricular[s.id].art_p1 = data.p1 !== undefined ? data.p1 : "";
+              loadedCoCurricular[s.id].art_p2 = data.p2 !== undefined ? data.p2 : "";
+              loadedCoCurricular[s.id].art_total = Number(data.p1 || 0) + Number(data.p2 || 0);
+            }
+          }
+          setCoCurricularMarks(loadedCoCurricular);
         }
-      } else {
-        // Load Co-Curricular Marks (Sport and Creative Arts)
-        const loadedCoCurricular: Record<string, any> = {};
-        for (const s of list) {
-          loadedCoCurricular[s.id] = {
-            sport_p1: "", sport_p2: "", sport_total: 0,
-            art_p1: "", art_p2: "", art_total: 0
-          };
-
-          // Fetch Sport
-          const sportSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "sport"));
-          if (sportSnap.exists()) {
-            const data = sportSnap.data();
-            loadedCoCurricular[s.id].sport_p1 = data.p1 !== undefined ? data.p1 : "";
-            loadedCoCurricular[s.id].sport_p2 = data.p2 !== undefined ? data.p2 : "";
-            loadedCoCurricular[s.id].sport_total = Number(data.p1 || 0) + Number(data.p2 || 0);
-          }
-
-          // Fetch Creative Art
-          const artSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "creative_art"));
-          if (artSnap.exists()) {
-            const data = artSnap.data();
-            loadedCoCurricular[s.id].art_p1 = data.p1 !== undefined ? data.p1 : "";
-            loadedCoCurricular[s.id].art_p2 = data.p2 !== undefined ? data.p2 : "";
-            loadedCoCurricular[s.id].art_total = Number(data.p1 || 0) + Number(data.p2 || 0);
-          }
-        }
-        setCoCurricularMarks(loadedCoCurricular);
+      } catch (err) {
+        console.error("Data load failure:", err);
       }
     };
     load();
   }, [selectedClass, selectedSubject, entryMode]);
 
-  // Save regular academic marks
   const saveAcademic = async (sid: string, field: string, val: string) => {
     if (!val) return;
     const target = selectedClass === "P6" ? 100 : 50;
@@ -122,19 +121,16 @@ export default function TeacherPage() {
     await setDoc(doc(db, "students", sid, "marks", selectedSubject), { [field]: final }, { merge: true });
   };
 
-  // Save co-curricular activity marks (/5 per section)
   const saveCoCurricularField = async (studentId: string, activityType: "sport" | "creative_art", fieldPart: "p1" | "p2", rawValue: string) => {
-    let numVal = rawValue === "" ? "" : Number(rawValue);
+    const numVal = rawValue === "" ? "" : Number(rawValue);
     
-    // Safety check: Don't allow higher than 5 marks
-    if (typeof numVal === "number" && (numVal > 5 || numVal < 0)) {
+    if (rawValue !== "" && (Number(rawValue) > 5 || Number(rawValue) < 0)) {
       alert("⚠️ Invalid Input! Marks must be between 0 and 5.");
       return;
     }
 
-    // Update local state state matrix view
     setCoCurricularMarks(prev => {
-      const currentStudentData = prev[studentId] || { sport_p1: "", sport_p2: "", art_p1: "", art_p2: "" };
+      const currentStudentData = prev[studentId] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
       const updated = { ...currentStudentData };
       
       if (activityType === "sport") {
@@ -150,7 +146,6 @@ export default function TeacherPage() {
       return { ...prev, [studentId]: updated };
     });
 
-    // Determine firestore payload keys dynamically
     const dbPayload = fieldPart === "p1" ? { p1: numVal } : { p2: numVal };
     await setDoc(doc(db, "students", studentId, "co_curricular", activityType), dbPayload, { merge: true });
   };
@@ -160,7 +155,7 @@ export default function TeacherPage() {
   return (
     <div className="min-h-screen bg-white font-sans text-xs">
       
-      {/* Upper Mode Selection Control Strip */}
+      {/* Upper Navigation Row Options Toggle Strip */}
       <div className="bg-gray-800 text-white px-4 py-2 flex gap-4 items-center border-b border-gray-700">
         <button 
           onClick={() => setEntryMode("academic")} 
@@ -180,7 +175,7 @@ export default function TeacherPage() {
         )}
       </div>
 
-      {/* Main Filter Management Headbar */}
+      {/* Primary Context Config Headbar */}
       <div className="bg-blue-900 text-white p-4 flex justify-between items-center sticky top-0 z-50 shadow-md">
         <div className="flex gap-2 items-center">
           {entryMode === "academic" ? (
@@ -199,19 +194,18 @@ export default function TeacherPage() {
           )}
         </div>
         
-        {entryMode === "academic" && (
+        {entryMode === "academic" ? (
           <div className="font-black text-[10px] uppercase tracking-wide">
             Paper Max Score: <input type="number" value={outOf} onChange={(e) => setOutOf(Number(e.target.value))} className="w-10 text-black font-bold p-1 text-center rounded ml-1" />
           </div>
-        )}
-        {entryMode === "cocurricular" && (
+        ) : (
           <div className="font-black text-[10px] uppercase tracking-wide text-emerald-300">
             ★ SYSTEM SETTINGS MAX: 5 + 5 = 10 MARKS EACH
           </div>
         )}
       </div>
 
-      {/* Roster Interface Grid Matrix Area */}
+      {/* Evaluation Roster Board Component Selection Matrix */}
       {entryMode === "academic" ? (
         <table className="w-full text-left border-collapse">
           <thead className="bg-gray-100 uppercase text-[10px] font-black tracking-wider text-blue-900 border-b">
@@ -264,7 +258,7 @@ export default function TeacherPage() {
                 <tr key={s.id} className="border-b border-gray-200 hover:bg-emerald-50/40">
                   <td className="p-3 font-bold uppercase border-r border-gray-300 text-gray-900">{s.name}</td>
                   
-                  {/* SPORT SECTIONS */}
+                  {/* SPORT COLUMNS */}
                   <td className="p-0 border-r border-gray-300">
                     <input 
                       type="number" 
@@ -289,7 +283,7 @@ export default function TeacherPage() {
                     {currentMarks.sport_total}
                   </td>
 
-                  {/* CREATIVE ART SECTIONS */}
+                  {/* ART COLUMNS */}
                   <td className="p-0 border-r border-gray-300">
                     <input 
                       type="number" 

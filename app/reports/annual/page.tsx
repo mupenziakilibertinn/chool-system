@@ -10,7 +10,7 @@ const coCurricularList = ["Sport", "Creative Art"];
 function AnnualMasterEngine() {
   const searchParams = useSearchParams();
   const urlClass = searchParams.get("class");
-  const activeClass = urlClass ? urlClass.toUpperCase() : "P6";
+  const activeClass = urlClass ? urlClass.toUpperCase() : "P3";
   
   const [students, setStudents] = useState<any[]>([]);
   const [allMarks, setAllMarks] = useState<any>({});
@@ -38,16 +38,16 @@ function AnnualMasterEngine() {
         }));
         setAllMarks(marksMatrix);
 
-        // Define calculation metrics pipelines for terms
+        // Process data pathways for both structures
         const computedMetrics = classFiltered.map((student) => {
           const studentMarks = marksMatrix[student.id] || {};
           
-          // --- TABLE 1 CALCULATIONS ---
+          // --- TABLE 1 CALCULATIONS (TESTS/INTERROGATIONS) ---
           let t1_t1Earned = 0, t1_t1Max = 0, t1_t1Valid = false;
           let t1_t2Earned = 0, t1_t2Max = 0, t1_t2Valid = false;
           let t1_t3Earned = 0, t1_t3Max = 0, t1_t3Valid = false;
 
-          // --- TABLE 2 CALCULATIONS ---
+          // --- TABLE 2 CALCULATIONS (FINAL REPORT CARD) ---
           let t2_t1Earned = 0, t2_t1Max = 0, t2_t1Valid = false;
           let t2_t2Earned = 0, t2_t2Max = 0, t2_t2Valid = false;
           let t2_t3Earned = 0, t2_t3Max = 0, t2_t3Valid = false;
@@ -59,55 +59,68 @@ function AnnualMasterEngine() {
 
             const mData = studentMarks[sub] || {};
             
-            // Raw Fields
+            // Map raw fields exactly to match your Marks Entry system blueprint
             const t1v1 = mData.term1_t1; const t1v2 = mData.term1_m1;
-            const t1v3 = mData.term1_t2; // Single field for exam
+            const t1v3 = mData.term1_t2; const t1v4 = mData.term1_m2;
+            const t1ex = mData.term1_exam; // Connected with '_exam'
 
             const t2v1 = mData.term2_t1; const t2v2 = mData.term2_m1;
-            const t2v3 = mData.term2_t2; // Single field for exam
+            const t2v3 = mData.term2_t2; const t2v4 = mData.term2_m2;
+            const t2ex = mData.term2_exam; // Connected with '_exam'
 
             const t3v1 = mData.term3_t1; const t3v2 = mData.term3_m1;
-            const t3v3 = mData.term3_t2; // Single field for exam
+            const t3v3 = mData.term3_t2; const t3v4 = mData.term3_m2;
+            const t3ex = mData.term3_exam; // Connected with '_exam'
 
-            // Table 1: Mid 1 + Mid 2 raw accumulation per term
-            if (isValidMark(t1v1) || isValidMark(t1v2)) {
-              t1_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2);
-              t1_t1Max += baseMax * 2; t1_t1Valid = true;
+            // Table 1 accumulators (Summing up all quizzes out of their native baseline max)
+            if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3) || isValidMark(t1v4)) {
+              t1_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2) + parseNumFallback(t1v3) + parseNumFallback(t1v4);
+              t1_t1Max += baseMax * 4; t1_t1Valid = true;
             }
-            if (isValidMark(t2v1) || isValidMark(t2v2)) {
-              t1_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2);
-              t1_t2Max += baseMax * 2; t1_t2Valid = true;
+            if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3) || isValidMark(t2v4)) {
+              t1_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2) + parseNumFallback(t2v3) + parseNumFallback(t2v4);
+              t1_t2Max += baseMax * 4; t1_t2Valid = true;
             }
-            if (isValidMark(t3v1) || isValidMark(t3v2)) {
-              t1_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2);
-              t1_t3Max += baseMax * 2; t1_t3Valid = true;
+            if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3) || isValidMark(t3v4)) {
+              t1_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2) + parseNumFallback(t3v3) + parseNumFallback(t3v4);
+              t1_t3Max += baseMax * 4; t1_t3Valid = true;
             }
 
-            // Table 2 (Final Report Card): Mid averaged out of 50, Exam is a single field out of 50
-            if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3)) {
-              const t1_midAvg = (parseNumFallback(t1v1) + parseNumFallback(t1v2)) / 2;
-              const t1_examSingle = parseNumFallback(t1v3);
-              t2_t1Earned += t1_midAvg + t1_examSingle;
-              t2_t1Max += baseMax * 2; 
-              t2_t1Valid = true;
+            // Table 2 (Final Report Card Calculations)
+            // Mid (/50) is the average of entered quizzes, Exam is the clean direct single field
+            if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3) || isValidMark(t1v4) || isValidMark(t1ex)) {
+              let count = 0; let sum = 0;
+              if (isValidMark(t1v1)) { count++; sum += parseNumFallback(t1v1); }
+              if (isValidMark(t1v2)) { count++; sum += parseNumFallback(t1v2); }
+              if (isValidMark(t1v3)) { count++; sum += parseNumFallback(t1v3); }
+              if (isValidMark(t1v4)) { count++; sum += parseNumFallback(t1v4); }
+              const midAvg = count > 0 ? sum / count : 0;
+              t2_t1Earned += midAvg + parseNumFallback(t1ex);
+              t2_t1Max += baseMax * 2; t2_t1Valid = true;
             }
-            if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3)) {
-              const t2_midAvg = (parseNumFallback(t2v1) + parseNumFallback(t2v2)) / 2;
-              const t2_examSingle = parseNumFallback(t2v3);
-              t2_t2Earned += t2_midAvg + t2_examSingle;
-              t2_t2Max += baseMax * 2;
-              t2_t2Valid = true;
+            if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3) || isValidMark(t2v4) || isValidMark(t2ex)) {
+              let count = 0; let sum = 0;
+              if (isValidMark(t2v1)) { count++; sum += parseNumFallback(t2v1); }
+              if (isValidMark(t2v2)) { count++; sum += parseNumFallback(t2v2); }
+              if (isValidMark(t2v3)) { count++; sum += parseNumFallback(t2v3); }
+              if (isValidMark(t2v4)) { count++; sum += parseNumFallback(t2v4); }
+              const midAvg = count > 0 ? sum / count : 0;
+              t2_t2Earned += midAvg + parseNumFallback(t2ex);
+              t2_t2Max += baseMax * 2; t2_t2Valid = true;
             }
-            if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3)) {
-              const t3_midAvg = (parseNumFallback(t3v1) + parseNumFallback(t3v2)) / 2;
-              const t3_examSingle = parseNumFallback(t3v3);
-              t2_t3Earned += t3_midAvg + t3_examSingle;
-              t2_t3Max += baseMax * 2;
-              t2_t3Valid = true;
+            if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3) || isValidMark(t3v4) || isValidMark(t3ex)) {
+              let count = 0; let sum = 0;
+              if (isValidMark(t3v1)) { count++; sum += parseNumFallback(t3v1); }
+              if (isValidMark(t3v2)) { count++; sum += parseNumFallback(t3v2); }
+              if (isValidMark(t3v3)) { count++; sum += parseNumFallback(t3v3); }
+              if (isValidMark(t3v4)) { count++; sum += parseNumFallback(t3v4); }
+              const midAvg = count > 0 ? sum / count : 0;
+              t2_t3Earned += midAvg + parseNumFallback(t3ex);
+              t2_t3Max += baseMax * 2; t2_t3Valid = true;
             }
           });
 
-          // Table 2: Add Co-curricular contributions directly to Final Report Card totals
+          // Inject Co-curricular outputs directly to Section II totals
           coCurricularList.forEach((sub) => {
             const mData = studentMarks[sub] || {};
             const t1v1 = mData.term1_t1; const t1v2 = mData.term1_m1;
@@ -128,7 +141,6 @@ function AnnualMasterEngine() {
             }
           });
 
-          // Complete Annual Matrix calculations
           const t1_annMax = t1_t1Max + t1_t2Max + t1_t3Max;
           const t1_annEarned = t1_t1Earned + t1_t2Earned + t1_t3Earned;
           const t2_annMax = t2_t1Max + t2_t2Max + t2_t3Max;
@@ -151,7 +163,7 @@ function AnnualMasterEngine() {
           };
         });
 
-        // Compute Multi-Term Ranking Indexes
+        // Compute Ranks across both metrics streams
         const alphabetSort = classFiltered.map(s => {
           const metrics = computedMetrics.find(m => m.id === s.id)!;
 
@@ -236,21 +248,10 @@ function AnnualMasterEngine() {
                     </tr>
                     <tr className="bg-gray-50 text-[9px] uppercase">
                       <th className="text-left pl-2">Course Pathways</th>
-                      <th>Mid 1</th>
-                      <th>Mid 2</th>
-                      <th className="bg-gray-100">Total</th>
-                      <th>Mid 1</th>
-                      <th>Mid 2</th>
-                      <th className="bg-gray-100">Total</th>
-                      <th>Mid 1</th>
-                      <th>Mid 2</th>
-                      <th className="bg-gray-100">Total</th>
-                      <th>Mid 1</th>
-                      <th>Mid 2</th>
-                      <th className="bg-gray-100">Total</th>
-                      <th>Max</th>
-                      <th>Earned</th>
-                      <th>%</th>
+                      <th>Quiz 1</th><th>Quiz 2</th><th className="bg-gray-100">Total</th>
+                      <th>Quiz 1</th><th>Quiz 2</th><th className="bg-gray-100">Total</th>
+                      <th>Quiz 1</th><th>Quiz 2</th><th className="bg-gray-100">Total</th>
+                      <th>Max</th><th>Earned</th><th>%</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -271,14 +272,12 @@ function AnnualMasterEngine() {
                       const t3_tot = (t3_1 !== "-" || t3_2 !== "-") ? parseNumFallback(t3_1) + parseNumFallback(t3_2) : "-";
 
                       const rowEarned = (t1_tot !== "-" ? t1_tot : 0) + (t2_tot !== "-" ? t2_tot : 0) + (t3_tot !== "-" ? t3_tot : 0);
-                      const rowMax = maxCol * 4 * 3;
+                      const rowMax = maxCol * 2 * 3;
 
                       return (
                         <tr key={sub} className="text-gray-900 font-black">
                           <td className="text-left pl-2 uppercase bg-gray-50/40 border-r-2">{sub}</td>
-                          <td>{maxCol}</td>
-                          <td>{maxCol}</td>
-                          <td className="bg-gray-100 font-bold">{maxCol * 2}</td>
+                          <td>{maxCol}</td><td>{maxCol}</td><td className="bg-gray-100 font-bold">{maxCol * 2}</td>
                           <td>{t1_1}</td><td>{t1_2}</td><td className="bg-gray-100 font-bold">{t1_tot}</td>
                           <td>{t2_1}</td><td>{t2_2}</td><td className="bg-gray-100 font-bold">{t2_tot}</td>
                           <td>{t3_1}</td><td>{t3_2}</td><td className="bg-gray-100 font-bold">{t3_tot}</td>
@@ -322,7 +321,7 @@ function AnnualMasterEngine() {
               </div>
 
               {/* =======================================================
-                  TABLE 2: FINAL REPORT CARD
+                  TABLE 2: FINAL REPORT CARD (SECTION II)
                  ======================================================= */}
               <div className="space-y-1.5">
                 <div className="text-left font-black tracking-wide text-xs uppercase text-blue-900">II. FINAL REPORT CARD</div>
@@ -338,21 +337,11 @@ function AnnualMasterEngine() {
                     </tr>
                     <tr className="bg-gray-50 text-[9px] uppercase">
                       <th className="text-left pl-2">MATIÈRES</th>
-                      <th>Max Int</th>
-                      <th>Max Ex</th>
-                      <th className="bg-gray-100">Max Tot</th>
-                      <th>Mid (/50)</th>
-                      <th>Exam (/50)</th>
-                      <th className="bg-gray-100">Total (/100)</th>
-                      <th>Mid (/50)</th>
-                      <th>Exam (/50)</th>
-                      <th className="bg-gray-100">Total (/100)</th>
-                      <th>Mid (/50)</th>
-                      <th>Exam (/50)</th>
-                      <th className="bg-gray-100">Total (/100)</th>
-                      <th>Total Max</th>
-                      <th>Total</th>
-                      <th>%</th>
+                      <th>Max Int</th><th>Max Ex</th><th className="bg-gray-100">Max Tot</th>
+                      <th>Mid (/50)</th><th>Exam (/50)</th><th className="bg-gray-100">Total (/100)</th>
+                      <th>Mid (/50)</th><th>Exam (/50)</th><th className="bg-gray-100">Total (/100)</th>
+                      <th>Mid (/50)</th><th>Exam (/50)</th><th className="bg-gray-100">Total (/100)</th>
+                      <th>Total Max</th><th>Total</th><th>%</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -364,37 +353,38 @@ function AnnualMasterEngine() {
                       const mData = studentMarks[sub] || {};
                       
                       // Term 1 Averaged Mid and Single Exam field
-                      const t1_mid = (mData.term1_t1 !== undefined || mData.term1_m1 !== undefined) 
-                        ? (parseNumFallback(mData.term1_t1) + parseNumFallback(mData.term1_m1)) / 2 : "-";
-                      const t1_ex = mData.term1_t2 !== undefined ? parseNumFallback(mData.term1_t2) : "-";
+                      const count1 = [mData.term1_t1, mData.term1_m1, mData.term1_t2, mData.term1_m2].filter(isValidMark).length;
+                      const sum1 = parseNumFallback(mData.term1_t1) + parseNumFallback(mData.term1_m1) + parseNumFallback(mData.term1_t2) + parseNumFallback(mData.term1_m2);
+                      const t1_mid = count1 > 0 ? (sum1 / count1) : "-";
+                      const t1_ex = mData.term1_exam !== undefined ? parseNumFallback(mData.term1_exam) : "-";
                       const t1_tot = t1_mid !== "-" || t1_ex !== "-" ? parseNumFallback(t1_mid) + parseNumFallback(t1_ex) : "-";
 
                       // Term 2 Averaged Mid and Single Exam field
-                      const t2_mid = (mData.term2_t1 !== undefined || mData.term2_m1 !== undefined) 
-                        ? (parseNumFallback(mData.term2_t1) + parseNumFallback(mData.term2_m1)) / 2 : "-";
-                      const t2_ex = mData.term2_t2 !== undefined ? parseNumFallback(mData.term2_t2) : "-";
+                      const count2 = [mData.term2_t1, mData.term2_m1, mData.term2_t2, mData.term2_m2].filter(isValidMark).length;
+                      const sum2 = parseNumFallback(mData.term2_t1) + parseNumFallback(mData.term2_m1) + parseNumFallback(mData.term2_t2) + parseNumFallback(mData.term2_m2);
+                      const t2_mid = count2 > 0 ? (sum2 / count2) : "-";
+                      const t2_ex = mData.term2_exam !== undefined ? parseNumFallback(mData.term2_exam) : "-";
                       const t2_tot = t2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
 
                       // Term 3 Averaged Mid and Single Exam field
-                      const t3_mid = (mData.term3_t1 !== undefined || mData.term3_m1 !== undefined) 
-                        ? (parseNumFallback(mData.term3_t1) + parseNumFallback(mData.term3_m1)) / 2 : "-";
-                      const t3_ex = mData.term3_t2 !== undefined ? parseNumFallback(mData.term3_t2) : "-";
+                      const count3 = [mData.term3_t1, mData.term3_m1, mData.term3_t2, mData.term3_m2].filter(isValidMark).length;
+                      const sum3 = parseNumFallback(mData.term3_t1) + parseNumFallback(mData.term3_m1) + parseNumFallback(mData.term3_t2) + parseNumFallback(mData.term3_m2);
+                      const t3_mid = count3 > 0 ? (sum3 / count3) : "-";
+                      const t3_ex = mData.term3_exam !== undefined ? parseNumFallback(mData.term3_exam) : "-";
                       const t3_tot = t3_mid !== "-" || t3_ex !== "-" ? parseNumFallback(t3_mid) + parseNumFallback(t3_ex) : "-";
 
                       const rowEarned = (t1_tot !== "-" ? t1_tot : 0) + (t2_tot !== "-" ? t2_tot : 0) + (t3_tot !== "-" ? t3_tot : 0);
-                      const rowMax = baseMax * 2 * 3; // 100 max per term * 3 terms
+                      const rowMax = baseMax * 2 * 3;
 
                       return (
                         <tr key={sub} className="text-gray-900 font-black">
                           <td className="text-left pl-2 uppercase bg-gray-50/40 border-r-2">{sub}</td>
-                          <td>{baseMax}</td>
-                          <td>{baseMax}</td>
-                          <td className="bg-gray-100 font-bold">{baseMax * 2}</td>
-                          <td>{t1_mid}</td><td>{t1_ex}</td><td className="bg-gray-100 font-bold">{t1_tot}</td>
-                          <td>{t2_mid}</td><td>{t2_ex}</td><td className="bg-gray-100 font-bold">{t2_tot}</td>
-                          <td>{t3_mid}</td><td>{t3_ex}</td><td className="bg-gray-100 font-bold">{t3_tot}</td>
+                          <td>{baseMax}</td><td>{baseMax}</td><td className="bg-gray-100 font-bold">{baseMax * 2}</td>
+                          <td>{typeof t1_mid === "number" ? t1_mid.toFixed(1) : t1_mid}</td><td>{t1_ex}</td><td className="bg-gray-100 font-bold">{typeof t1_tot === "number" ? t1_tot.toFixed(1) : t1_tot}</td>
+                          <td>{typeof t2_mid === "number" ? t2_mid.toFixed(1) : t2_mid}</td><td>{t2_ex}</td><td className="bg-gray-100 font-bold">{typeof t2_tot === "number" ? t2_tot.toFixed(1) : t2_tot}</td>
+                          <td>{typeof t3_mid === "number" ? t3_mid.toFixed(1) : t3_mid}</td><td>{t3_ex}</td><td className="bg-gray-100 font-bold">{typeof t3_tot === "number" ? t3_tot.toFixed(1) : t3_tot}</td>
                           <td className="bg-gray-50">{rowMax}</td>
-                          <td className="text-blue-950 font-black">{rowEarned}</td>
+                          <td className="text-blue-950 font-black">{rowEarned.toFixed(1)}</td>
                           <td className="text-green-800 font-serif">{(rowEarned / rowMax * 100).toFixed(1)}%</td>
                         </tr>
                       );
@@ -421,9 +411,7 @@ function AnnualMasterEngine() {
                       return (
                         <tr key={sub} className="text-gray-900 font-black">
                           <td className="text-left pl-2 uppercase bg-gray-50/40 border-r-2">{sub}</td>
-                          <td>5</td>
-                          <td>5</td>
-                          <td className="bg-gray-100 font-bold">10</td>
+                          <td>5</td><td>5</td><td className="bg-gray-100 font-bold">10</td>
                           <td>{t1_mid}</td><td>{t1_ex}</td><td className="bg-gray-100 font-bold">{t1_tot}</td>
                           <td>{t2_mid}</td><td>{t2_ex}</td><td className="bg-gray-100 font-bold">{t2_tot}</td>
                           <td>{t3_mid}</td><td>{t3_ex}</td><td className="bg-gray-100 font-bold">{t3_tot}</td>
@@ -437,9 +425,7 @@ function AnnualMasterEngine() {
                     {/* TABLE 2 TOTAL GENERAL ROW */}
                     <tr className="bg-blue-900 text-white font-black text-[11px] border-t-4 border-black">
                       <td className="text-left pl-2 uppercase">TOTAL GENERAL</td>
-                      <td>-</td>
-                      <td>-</td>
-                      <td className="bg-blue-950">-</td>
+                      <td>-</td><td>-</td><td className="bg-blue-950">-</td>
                       <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t1.valid ? `${m.t2.t1.earned.toFixed(1)} / ${m.t2.t1.max}` : "-"}</td>
                       <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t2.valid ? `${m.t2.t2.earned.toFixed(1)} / ${m.t2.t2.max}` : "-"}</td>
                       <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t3.valid ? `${m.t2.t3.earned.toFixed(1)} / ${m.t2.t3.max}` : "-"}</td>

@@ -524,4 +524,3 @@ export default function AnnualMasterPage() {
     </Suspense>
   );
 }
-

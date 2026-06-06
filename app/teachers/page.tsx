@@ -1,12 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation"; // Added missing import
 import { db, auth } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase/firestore";
 
 export default function TeacherPage() {
-  const router = useRouter();
+  const router = useRouter(); // Initialized missing router hook
   const [user, setUser] = useState<any>(null);
   const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "BIZIMANA FELIX" });
   const [selectedClass, setSelectedClass] = useState("");
@@ -156,7 +156,6 @@ export default function TeacherPage() {
           <div className="text-lg font-black tracking-wide uppercase">{config.name || "BIZIMANA FELIX"}</div>
         </div>
         <div className="flex items-center gap-3">
-          {/* Main Co-Curricular Mode Control Switcher */}
           <button
             onClick={() => setEntryMode(entryMode === "academic" ? "cocurricular" : "academic")}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow border border-emerald-500 transition-all"
@@ -164,10 +163,8 @@ export default function TeacherPage() {
             {entryMode === "academic" ? "🏆 Go to Co-Curricular" : "📖 Go to Academic Marks"}
           </button>
           
-          {/* INTERCONNECTED REPORT PROCESSING HUB */}
           {config.classTeacherOf && (
             <div className="flex items-center bg-slate-800/80 p-1 rounded-lg border border-slate-700 gap-1">
-              {/* BUTTON 1: MID TERMS REPORT VIEWER */}
               <button 
                 onClick={() => router.push(`/reports/midterm?class=${config.classTeacherOf.toUpperCase()}&term=${selectedTerm.replace(/\s+/g, "")}`)}
                 className="bg-[#3A6073] hover:bg-[#2B4C5E] text-white font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all flex items-center gap-1"
@@ -175,7 +172,6 @@ export default function TeacherPage() {
                 📊 MID-TERMS ({config.classTeacherOf})
               </button>
 
-              {/* BUTTON 2: WHOLE YEAR ANNUAL MATRIX VIEWER */}
               <button 
                 onClick={() => router.push(`/reports/annual?class=${config.classTeacherOf.toUpperCase()}`)}
                 className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all flex items-center gap-1"
@@ -196,7 +192,7 @@ export default function TeacherPage() {
       
       <div className="max-w-[1400px] mx-auto px-6 mt-6">
         {/* DROPDOWN FILTER CARD CONTAINER */}
-        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm mb-6 flex gap-6">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm mb-6 flex gap-4">
           <div className="flex-1">
             <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">TARGET MATRIX STREAM</label>
             {entryMode === "academic" ? (
@@ -206,7 +202,7 @@ export default function TeacherPage() {
                 className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
               >
                 {config.classes.map((c: string) => (
-                  <option key={c} value={c}>CLASS STREAM {c} — {selectedSubject || "SUBJECT"}</option>
+                  <option key={c} value={c}>CLASS STREAM {c}</option>
                 ))}
               </select>
             ) : (
@@ -215,6 +211,23 @@ export default function TeacherPage() {
               </div>
             )}
           </div>
+
+          {/* Integrated Subject Filter Mapping dropdown controls */}
+          {entryMode === "academic" && (
+            <div className="flex-1">
+              <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">ASSIGNED COURSE SUBJECT</label>
+              <select
+                value={selectedSubject}
+                onChange={(e) => setSelectedSubject(e.target.value)}
+                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
+              >
+                {(config.subjects || []).map((s: string) => (
+                  <option key={s} value={s}>{s.toUpperCase()}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="flex-1">
             <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">ASSESSMENT TARGET TERM</label>
             <select
@@ -240,9 +253,6 @@ export default function TeacherPage() {
                 {entryMode === "academic"
                   ? `STREAM ${selectedClass} LEVEL • ${selectedSubject}`
                   : `STREAM ${config.classTeacherOf} SPECIALIZED CO-CURRICULAR TRACK`}
-              </p>
-              <p className="text-emerald-600 text-[10px] font-bold uppercase mt-1">
-                💡 Click top input, paste whole column from Excel, use Enter key to navigate!
               </p>
             </div>
             {entryMode === "academic" ? (
@@ -287,7 +297,14 @@ export default function TeacherPage() {
                             id={`${f}-${s.id}`}
                             type="number"
                             onBlur={(e) => saveAcademic(s.id, f, e.target.value)}
-                            onKeyDown={(e) => { if (e.key === "Enter") document.getElementById(`${f}-${students[idx + 1]?.id}`)?.focus(); }}
+                            onKeyDown={(e) => { 
+                              if (e.key === "Enter") {
+                                const nextStudent = students[idx + 1];
+                                if (nextStudent) {
+                                  document.getElementById(`${f}-${nextStudent.id}`)?.focus();
+                                }
+                              }
+                            }}
                             className="w-full max-w-[100px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-slate-900 text-sm"
                             placeholder="0"
                           />

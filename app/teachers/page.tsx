@@ -8,7 +8,7 @@ import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase
 export default function TeacherPage() {
   const router = useRouter(); 
   const [user, setUser] = useState<any>(null);
-  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "BIZIMANA FELIX" });
+  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "" });
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedTerm, setSelectedTerm] = useState("ACADEMIC TERM 1");
@@ -25,7 +25,6 @@ export default function TeacherPage() {
         const snap = await getDoc(doc(db, "teachers", u.email.toLowerCase()));
         if (snap.exists()) {
           const d = snap.data();
-
           const combinedClasses = [...(d.classes || [])];
           if (d.classTeacherOf && !combinedClasses.includes(d.classTeacherOf)) {
             combinedClasses.push(d.classTeacherOf);
@@ -35,7 +34,6 @@ export default function TeacherPage() {
             classes: combinedClasses,
             classTeacherOf: d.classTeacherOf || ""
           });
-
           setSelectedClass(d.classes[0] || d.classTeacherOf || "");
           setSelectedSubject(d.subjects?.[0] || "");
         }
@@ -50,7 +48,7 @@ export default function TeacherPage() {
     } else if (entryMode === "academic" && config.classes.length > 0) {
       setSelectedClass(config.classes[0]);
     }
-  }, [entryMode, config.classTeacherOf]);
+  }, [entryMode, config.classTeacherOf, config.classes]);
 
   useEffect(() => {
     if (!selectedClass) return;
@@ -117,7 +115,6 @@ export default function TeacherPage() {
 
   const saveCoCurricularField = async (studentId: string, activityType: "sport" | "creative_art", fieldPart: "p1" | "p2", rawValue: string) => {
     const numVal = rawValue === "" ? "" : Number(rawValue);
-
     if (rawValue !== "" && (Number(rawValue) > 5 || Number(rawValue) < 0)) {
       alert("⚠️ Invalid Input! Marks must be between 0 and 5.");
       return;
@@ -125,7 +122,6 @@ export default function TeacherPage() {
     setCoCurricularMarks(prev => {
       const currentStudentData = prev[studentId] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
       const updated = { ...currentStudentData };
-
       if (activityType === "sport") {
         if (fieldPart === "p1") updated.sport_p1 = rawValue;
         if (fieldPart === "p2") updated.sport_p2 = rawValue;
@@ -148,7 +144,7 @@ export default function TeacherPage() {
       <div className="bg-[#11224D] text-white px-8 py-4 flex justify-between items-center shadow-md">
         <div>
           <div className="text-[10px] uppercase font-black text-blue-400 tracking-wider">ACTIVE INSTRUCTOR</div>
-          <div className="text-lg font-black tracking-wide uppercase">{config.name || "BIZIMANA FELIX"}</div>
+          <div className="text-lg font-black tracking-wide uppercase">{config.name || "TEACHER PANEL"}</div>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -162,26 +158,18 @@ export default function TeacherPage() {
             <div className="flex items-center bg-slate-800/80 p-1 rounded-lg border border-slate-700 gap-1">
               <button 
                 onClick={() => router.push(`/reports/midterm?class=${config.classTeacherOf.toUpperCase()}&term=${selectedTerm.replace(/\s+/g, "")}`)}
-                className="bg-[#3A6073] hover:bg-[#2B4C5E] text-white font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all flex items-center gap-1"
+                className="bg-[#3A6073] hover:bg-[#2B4C5E] text-white font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all"
               >
                 📊 MID-TERMS ({config.classTeacherOf})
               </button>
-
               <button 
                 onClick={() => router.push(`/reports/annual?class=${config.classTeacherOf.toUpperCase()}`)}
-                className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all flex items-center gap-1"
+                className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all"
               >
                 🖨️ ANNUAL SHEETS ({config.classTeacherOf})
               </button>
             </div>
           )}
-          
-          <button 
-            onClick={() => router.push("/login")}
-            className="bg-[#8B1E1E] hover:bg-red-800 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all"
-          >
-            SIGN OUT
-          </button>
         </div>
       </div>
       
@@ -193,7 +181,7 @@ export default function TeacherPage() {
               <select
                 value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
-                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
+                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none"
               >
                 {config.classes.map((c: string) => (
                   <option key={c} value={c}>CLASS STREAM {c}</option>
@@ -212,7 +200,7 @@ export default function TeacherPage() {
               <select
                 value={selectedSubject}
                 onChange={(e) => setSelectedSubject(e.target.value)}
-                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
+                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none"
               >
                 {(config.subjects || []).map((s: string) => (
                   <option key={s} value={s}>{s.toUpperCase()}</option>
@@ -226,7 +214,7 @@ export default function TeacherPage() {
             <select
               value={selectedTerm}
               onChange={(e) => setSelectedTerm(e.target.value)}
-              className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
+              className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none"
             >
               <option value="ACADEMIC TERM 1">ACADEMIC TERM 1</option>
               <option value="ACADEMIC TERM 2">ACADEMIC TERM 2</option>
@@ -241,29 +229,17 @@ export default function TeacherPage() {
               <h2 className="text-[#11224D] text-md font-black uppercase tracking-wide">
                 {entryMode === "academic" ? "MARKS GRADING DASHBOARD" : "CO-CURRICULAR SKILLS EVALUATION"}
               </h2>
-              <p className="text-[10px] text-slate-500 uppercase font-bold mt-0.5">
-                {entryMode === "academic"
-                  ? `STREAM ${selectedClass} LEVEL • ${selectedSubject}`
-                  : `STREAM ${config.classTeacherOf} SPECIALIZED CO-CURRICULAR TRACK`}
-              </p>
             </div>
-            {entryMode === "academic" ? (
+            {entryMode === "academic" && (
               <div className="flex items-center gap-3">
                 <span className="font-black text-[10px] uppercase text-slate-500">PAPER MAX:</span>
                 <input
                   type="number"
                   value={outOf}
                   onChange={(e) => setOutOf(Number(e.target.value))}
-                  className="w-16 text-slate-900 font-black p-2 text-center rounded-xl border-2 border-slate-900 outline-none text-xs"
+                  className="w-16 text-slate-900 font-black p-2 text-center rounded-xl border-2 border-slate-900 text-xs"
                 />
-                <button className="bg-[#00875A] hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
-                  COMMIT & LOCK TERM MARKS 💾
-                </button>
               </div>
-            ) : (
-              <span className="bg-emerald-50 border border-emerald-300 text-emerald-800 font-black text-[10px] tracking-wider px-4 py-2.5 rounded-xl uppercase">
-                ★ SCALE RANGE MAPPED: 5 + 5 = 10 MAX MARKS PER COLUMN
-              </span>
             )}
           </div>
 
@@ -291,12 +267,10 @@ export default function TeacherPage() {
                             onKeyDown={(e) => { 
                               if (e.key === "Enter") {
                                 const nextStudent = students[idx + 1];
-                                if (nextStudent) {
-                                  document.getElementById(`${f}-${nextStudent.id}`)?.focus();
-                                }
+                                if (nextStudent) document.getElementById(`${f}-${nextStudent.id}`)?.focus();
                               }
                             }}
-                            className="w-full max-w-[100px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-slate-900 text-sm"
+                            className="w-full max-w-[100px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
                             placeholder="0"
                           />
                         </td>
@@ -334,7 +308,7 @@ export default function TeacherPage() {
                             min={0} max={5}
                             value={currentMarks.sport_p1}
                             onChange={(e) => saveCoCurricularField(s.id, "sport", "p1", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-emerald-600 text-sm"
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
                             placeholder="/5"
                           />
                         </td>
@@ -344,7 +318,7 @@ export default function TeacherPage() {
                             min={0} max={5}
                             value={currentMarks.sport_p2}
                             onChange={(e) => saveCoCurricularField(s.id, "sport", "p2", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-emerald-600 text-sm"
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
                             placeholder="/5"
                           />
                         </td>
@@ -357,7 +331,7 @@ export default function TeacherPage() {
                             min={0} max={5}
                             value={currentMarks.art_p1}
                             onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p1", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-teal-600 text-sm"
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
                             placeholder="/5"
                           />
                         </td>
@@ -367,7 +341,7 @@ export default function TeacherPage() {
                             min={0} max={5}
                             value={currentMarks.art_p2}
                             onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p2", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-teal-600 text-sm"
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
                             placeholder="/5"
                           />
                         </td>

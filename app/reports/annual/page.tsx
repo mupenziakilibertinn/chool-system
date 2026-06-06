@@ -1,250 +1,208 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { db } from "../../../lib/firebase";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 
 const subjectsList = ["Mathematics", "SET", "SRE", "Kinyarwanda", "French", "English"];
 const coCurricularList = ["Sport", "Creative Art"];
 
 function AnnualMasterEngine() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const urlClass = searchParams.get("class");
+  const activeClass = urlClass ? urlClass.toUpperCase() : "P3";
   
-  const [activeClass, setActiveClass] = useState<string>("P3");
   const [students, setStudents] = useState<any[]>([]);
   const [allMarks, setAllMarks] = useState<any>({});
   const [coCurricularMarks, setCoCurricularMarks] = useState<any>({});
   const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [currentTeacher, setCurrentTeacher] = useState<any>(null);
 
   const parseNumFallback = (val: any) => (val === undefined || val === null || val === "-") ? 0 : Number(val);
   const isValidMark = (val: any) => val !== undefined && val !== null && val !== "";
 
   useEffect(() => {
-    const verifyTeacherAndClass = async () => {
+    const fetchAnnualData = async () => {
       setLoading(true);
-      if (typeof window === "undefined") return;
-
-      // 1. Get the exact email of whoever is currently logged in
-      const savedEmail = localStorage.getItem("teacherEmail");
-      if (!savedEmail) {
-        setAuthError("No active authentication profile discovered. Please log in first.");
-        setLoading(false);
-        router.push("/login");
-        return;
-      }
-
       try {
-        const cleanEmail = savedEmail.trim().toLowerCase();
-        
-        // 2. Query Firestore strictly matching this specific logged-in email
-        const teacherQuery = query(
-          collection(db, "teachers"), 
-          where("email", "==", cleanEmail)
-        );
-        const teacherSnap = await getDocs(teacherQuery);
+        const sSnap = await getDocs(collection(db, "students"));
+        const classFiltered = sSnap.docs
+          .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
+          .filter((s) => s.class?.toUpperCase() === activeClass);
 
-        if (teacherSnap.empty) {
-          setAuthError(`Profile for ${cleanEmail} was not found in the school registry.`);
-          setLoading(false);
-          return;
-        }
+        let marksMatrix: any = {};
+        let coCurricularMatrix: any = {};
 
-        // 3. Extract correct teacher records matching the account
-        const teacherDoc = teacherSnap.docs[0];
-        const teacherData = teacherDoc.data();
-        setCurrentTeacher(teacherData);
+        await Promise.all(classFiltered.map(async (student) => {
+          const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
+          marksMatrix[student.id] = {};
+          mSnap.forEach((docSnap) => {
+            if (docSnap.id === "co_curricular") {
+              coCurricularMatrix[student.id] = docSnap.data();
+            } else {
+              marksMatrix[student.id][docSnap.id] = docSnap.data();
+            }
+          });
+        }));
 
-        // 4. Set class from URL parameter OR fall back to their registered class assignment
-        let targetClass = urlClass ? urlClass.toUpperCase() : "";
-        if (!targetClass) {
-          targetClass = (teacherData.class || teacherData.assignedClass || "P3").toUpperCase();
-        }
+        setAllMarks(marksMatrix);
+        setCoCurricularMarks(coCurricularMatrix);
 
-        setActiveClass(targetClass);
-        await buildAnnualReportMatrix(targetClass);
+        // Process data pathways for both structures
+        const computedMetrics = classFiltered.map((student) => {
+          const studentMarks = marksMatrix[student.id] || {};
+          const studentCo = coCurricularMatrix[student.id] || {};
+          
+          // --- TABLE 1 CALCULATIONS (TESTS/INTERROGATIONS) ---
+          let t1_t1Earned = 0, t1_t1Max = 0, t1_t1Valid = false;
+          let t1_t2Earned = 0, t1_t2Max = 0, t1_t2Valid = false;
+          let t1_t3Earned = 0, t1_t3Max = 0, t1_t3Valid = false;
 
+          // --- TABLE 2 CALCULATIONS (FINAL REPORT CARD) ---
+          let t2_t1Earned = 0, t2_t1Max = 0, t2_t1Valid = false;
+          let t2_t2Earned = 0, t2_t2Max = 0, t2_t2Valid = false;
+          let t2_t3Earned = 0, t2_t3Max = 0, t2_t3Valid = false;
+
+          subjectsList.forEach((sub) => {
+            if (activeClass === "P6" && sub === "French") return;
+            const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
+            const baseMax = isFrenchP1P5 ? 25 : 50;
+
+            const mData = studentMarks[sub] || {};
+            
+            // Map raw fields exactly to match your Marks Entry system blueprint
+            const t1v1 = mData.term1_t1; const t1v2 = mData.term1_m1;
+            const t1v3 = mData.term1_t2; const t1v4 = mData.term1_m2;
+            const t1ex = mData.term1_exam; 
+
+            const t2v1 = mData.term2_t1; const t2v2 = mData.term2_m1;
+            const t2v3 = mData.term2_t2; const t2v4 = mData.term2_m2;
+            const t2ex = mData.term2_exam; 
+
+            const t3v1 = mData.term3_t1; const t3v2 = mData.term3_m1;
+            const t3v3 = mData.term3_t2; const t3v4 = mData.term3_m2;
+            const t3ex = mData.term3_exam; 
+
+            // Table 1 accumulators (Quiz 1 + Quiz 2 totals per term)
+            if (isValidMark(t1v1) || isValidMark(t1v2)) {
+              t1_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2);
+              t1_t1Max += baseMax * 2; t1_t1Valid = true;
+            }
+            if (isValidMark(t2v1) || isValidMark(t2v2)) {
+              t1_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2);
+              t1_t2Max += baseMax * 2; t1_t2Valid = true;
+            }
+            if (isValidMark(t3v1) || isValidMark(t3v2)) {
+              t1_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2);
+              t1_t3Max += baseMax * 2; t1_t3Valid = true;
+            }
+
+            // Table 2 (Final Report Card Calculations)
+            if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3) || isValidMark(t1v4) || isValidMark(t1ex)) {
+              let count = 0; let sum = 0;
+              if (isValidMark(t1v1)) { count++; sum += parseNumFallback(t1v1); }
+              if (isValidMark(t1v2)) { count++; sum += parseNumFallback(t1v2); }
+              if (isValidMark(t1v3)) { count++; sum += parseNumFallback(t1v3); }
+              if (isValidMark(t1v4)) { count++; sum += parseNumFallback(t1v4); }
+              const midAvg = count > 0 ? sum / count : 0;
+              t2_t1Earned += midAvg + parseNumFallback(t1ex);
+              t2_t1Max += baseMax * 2; t2_t1Valid = true;
+            }
+            if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3) || isValidMark(t2v4) || isValidMark(t2ex)) {
+              let count = 0; let sum = 0;
+              if (isValidMark(t2v1)) { count++; sum += parseNumFallback(t2v1); }
+              if (isValidMark(t2v2)) { count++; sum += parseNumFallback(t2v2); }
+              if (isValidMark(t2v3)) { count++; sum += parseNumFallback(t2v3); }
+              if (isValidMark(t2v4)) { count++; sum += parseNumFallback(t2v4); }
+              const midAvg = count > 0 ? sum / count : 0;
+              t2_t2Earned += midAvg + parseNumFallback(t2ex);
+              t2_t2Max += baseMax * 2; t2_t2Valid = true;
+            }
+            if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3) || isValidMark(t3v4) || isValidMark(t3ex)) {
+              let count = 0; let sum = 0;
+              if (isValidMark(t3v1)) { count++; sum += parseNumFallback(t3v1); }
+              if (isValidMark(t3v2)) { count++; sum += parseNumFallback(t3v2); }
+              if (isValidMark(t3v3)) { count++; sum += parseNumFallback(t3v3); }
+              if (isValidMark(t3v4)) { count++; sum += parseNumFallback(t3v4); }
+              const midAvg = count > 0 ? sum / count : 0;
+              t2_t3Earned += midAvg + parseNumFallback(t3ex);
+              t2_t3Max += baseMax * 2; t2_t3Valid = true;
+            }
+          });
+
+          // Inject Co-curricular outputs directly using safe fallback variations
+          coCurricularList.forEach((sub) => {
+            const dbKey = sub === "Sport" ? "sport" : "art";
+            
+            const t1_t = studentCo[`term1_${dbKey}_test`] ?? studentCo[`term1_sports_test`] ?? "-"; 
+            const t1_e = studentCo[`term1_${dbKey}_exam`] ?? studentCo[`term1_sports_exam` ] ?? "-";
+            
+            const t2_t = studentCo[`term2_${dbKey}_test`] ?? studentCo[`term2_sports_test`] ?? "-"; 
+            const t2_e = studentCo[`term2_${dbKey}_exam`] ?? studentCo[`term2_sports_exam` ] ?? "-";
+            
+            const t3_t = studentCo[`term3_${dbKey}_test`] ?? studentCo[`term3_sports_test`] ?? "-"; 
+            const t3_e = studentCo[`term3_${dbKey}_exam`] ?? studentCo[`term3_sports_exam` ] ?? "-";
+
+            const t1_tot = (t1_t !== "-" || t1_e !== "-") ? parseNumFallback(t1_t) + parseNumFallback(t1_e) : "-";
+            const t2_tot = (t2_t !== "-" || t2_e !== "-") ? parseNumFallback(t2_t) + parseNumFallback(t2_e) : "-";
+            const t3_tot = (t3_t !== "-" || t3_e !== "-") ? parseNumFallback(t3_t) + parseNumFallback(t3_e) : "-";
+
+            if (t1_tot !== "-") { t2_t1Earned += parseNumFallback(t1_tot); t2_t1Max += 10; t2_t1Valid = true; }
+            if (t2_tot !== "-") { t2_t2Earned += parseNumFallback(t2_tot); t2_t2Max += 10; t2_t2Valid = true; }
+            if (t3_tot !== "-") { t2_t3Earned += parseNumFallback(t3_tot); t2_t3Max += 10; t2_t3Valid = true; }
+          });
+
+          const t1_annMax = t1_t1Max + t1_t2Max + t1_t3Max;
+          const t1_annEarned = t1_t1Earned + t1_t2Earned + t1_t3Earned;
+          const t2_annMax = t2_t1Max + t2_t2Max + t2_t3Max;
+          const t2_annEarned = t2_t1Earned + t2_t2Earned + t2_t3Earned;
+
+          return {
+            id: student.id,
+            t1: {
+              t1: { earned: t1_t1Earned, max: t1_t1Max, pct: t1_t1Max > 0 ? (t1_t1Earned / t1_t1Max) * 100 : 0, valid: t1_t1Valid },
+              t2: { earned: t1_t2Earned, max: t1_t2Max, pct: t1_t2Max > 0 ? (t1_t2Earned / t1_t2Max) * 100 : 0, valid: t1_t2Valid },
+              t3: { earned: t1_t3Earned, max: t1_t3Max, pct: t1_t3Max > 0 ? (t1_t3Earned / t1_t3Max) * 100 : 0, valid: t1_t3Valid },
+              annual: { earned: t1_annEarned, max: t1_annMax, pct: t1_annMax > 0 ? (t1_annEarned / t1_annMax) * 100 : 0 }
+            },
+            t2: {
+              t1: { earned: t2_t1Earned, max: t2_t1Max, pct: t2_t1Max > 0 ? (t2_t1Earned / t2_t1Max) * 100 : 0, valid: t2_t1Valid },
+              t2: { earned: t2_t2Earned, max: t2_t2Max, pct: t2_t2Max > 0 ? (t2_t2Earned / t2_t2Max) * 100 : 0, valid: t2_t2Valid },
+              t3: { earned: t2_t3Earned, max: t2_t3Max, pct: t2_t3Max > 0 ? (t2_t3Earned / t2_t3Max) * 100 : 0, valid: t2_t3Valid },
+              annual: { earned: t2_annEarned, max: t2_annMax, pct: t2_annMax > 0 ? (t2_annEarned / t2_annMax) * 100 : 0 }
+            }
+          };
+        });
+
+        // Compute Ranks across both metrics streams
+        const alphabetSort = classFiltered.map(s => {
+          const metrics = computedMetrics.find(m => m.id === s.id)!;
+
+          const getRank = (tableKey: "t1" | "t2", termKey: "t1" | "t2" | "t3" | "annual") => {
+            const list = [...computedMetrics].sort((a, b) => b[tableKey][termKey].pct - a[tableKey][termKey].pct);
+            return list.findIndex(x => x.id === s.id) + 1;
+          };
+
+          return {
+            ...s,
+            metrics,
+            ranks: {
+              t1: { t1: getRank("t1", "t1"), t2: getRank("t1", "t2"), t3: getRank("t1", "t3"), annual: getRank("t1", "annual") },
+              t2: { t1: getRank("t2", "t1"), t2: getRank("t2", "t2"), t3: getRank("t2", "t3"), annual: getRank("t2", "annual") }
+            }
+          };
+        }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+        setStudents(alphabetSort);
       } catch (err) {
-        console.error("Auth initialization failure details:", err);
-        setAuthError("An error occurred during secure credential mapping.");
-        setLoading(false);
+        console.error("Critical System Data Build Interrupted:", err);
       }
+      setLoading(false);
     };
 
-    verifyTeacherAndClass();
-  }, [urlClass]);
+    fetchAnnualData();
+  }, [activeClass]);
 
-  const buildAnnualReportMatrix = async (targetClass: string) => {
-    try {
-      const sSnap = await getDocs(collection(db, "students"));
-      const classFiltered = sSnap.docs
-        .map(d => ({ id: d.id, ...(d.data() as { name?: string; class?: string }) }))
-        .filter((s) => s.class?.toUpperCase() === targetClass);
-
-      let marksMatrix: any = {};
-      let coCurricularMatrix: any = {};
-
-      await Promise.all(classFiltered.map(async (student) => {
-        const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
-        marksMatrix[student.id] = {};
-        mSnap.forEach((docSnap) => {
-          if (docSnap.id === "co_curricular") {
-            coCurricularMatrix[student.id] = docSnap.data();
-          } else {
-            marksMatrix[student.id][docSnap.id] = docSnap.data();
-          }
-        });
-      }));
-
-      setAllMarks(marksMatrix);
-      setCoCurricularMarks(coCurricularMatrix);
-
-      const computedMetrics = classFiltered.map((student) => {
-        const studentMarks = marksMatrix[student.id] || {};
-        const studentCo = coCurricularMatrix[student.id] || {};
-        
-        let t1_t1Earned = 0, t1_t1Max = 0, t1_t1Valid = false;
-        let t1_t2Earned = 0, t1_t2Max = 0, t1_t2Valid = false;
-        let t1_t3Earned = 0, t1_t3Max = 0, t1_t3Valid = false;
-
-        let t2_t1Earned = 0, t2_t1Max = 0, t2_t1Valid = false;
-        let t2_t2Earned = 0, t2_t2Max = 0, t2_t2Valid = false;
-        let t2_t3Earned = 0, t2_t3Max = 0, t2_t3Valid = false;
-
-        subjectsList.forEach((sub) => {
-          if (targetClass === "P6" && sub === "French") return;
-          const isFrenchP1P5 = sub === "French" && targetClass !== "P6";
-          const baseMax = isFrenchP1P5 ? 25 : 50;
-
-          const mData = studentMarks[sub] || {};
-          
-          const t1v1 = mData.term1_t1; const t1v2 = mData.term1_m1;
-          const t1v3 = mData.term1_t2; const t1v4 = mData.term1_m2;
-          const t1ex = mData.term1_exam; 
-
-          const t2v1 = mData.term2_t1; const t2v2 = mData.term2_m1;
-          const t2v3 = mData.term2_t2; const t2v4 = mData.term2_m2;
-          const t2ex = mData.term2_exam; 
-
-          const t3v1 = mData.term3_t1; const t3v2 = mData.term3_m1;
-          const t3v3 = mData.term3_t2; const t3v4 = mData.term3_m2;
-          const t3ex = mData.term3_exam; 
-
-          if (isValidMark(t1v1) || isValidMark(t1v2)) {
-            t1_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2);
-            t1_t1Max += baseMax * 2; t1_t1Valid = true;
-          }
-          if (isValidMark(t2v1) || isValidMark(t2v2)) {
-            t1_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2);
-            t1_t2Max += baseMax * 2; t1_t2Valid = true;
-          }
-          if (isValidMark(t3v1) || isValidMark(t3v2)) {
-            t1_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2);
-            t1_t3Max += baseMax * 2; t1_t3Valid = true;
-          }
-
-          if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3) || isValidMark(t1v4) || isValidMark(t1ex)) {
-            let count = 0; let sum = 0;
-            if (isValidMark(t1v1)) { count++; sum += parseNumFallback(t1v1); }
-            if (isValidMark(t1v2)) { count++; sum += parseNumFallback(t1v2); }
-            if (isValidMark(t1v3)) { count++; sum += parseNumFallback(t1v3); }
-            if (isValidMark(t1v4)) { count++; sum += parseNumFallback(t1v4); }
-            const midAvg = count > 0 ? sum / count : 0;
-            t2_t1Earned += midAvg + parseNumFallback(t1ex);
-            t2_t1Max += baseMax * 2; t2_t1Valid = true;
-          }
-          if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3) || isValidMark(t2v4) || isValidMark(t2ex)) {
-            let count = 0; let sum = 0;
-            if (isValidMark(t2v1)) { count++; sum += parseNumFallback(t2v1); }
-            if (isValidMark(t2v2)) { count++; sum += parseNumFallback(t2v2); }
-            if (isValidMark(t2v3)) { count++; sum += parseNumFallback(t2v3); }
-            if (isValidMark(t2v4)) { count++; sum += parseNumFallback(t2v4); }
-            const midAvg = count > 0 ? sum / count : 0;
-            t2_t2Earned += midAvg + parseNumFallback(t2ex);
-            t2_t2Max += baseMax * 2; t2_t2Valid = true;
-          }
-          if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3) || isValidMark(t3v4) || isValidMark(t3ex)) {
-            let count = 0; let sum = 0;
-            if (isValidMark(t3v1)) { count++; sum += parseNumFallback(t3v1); }
-            if (isValidMark(t3v2)) { count++; sum += parseNumFallback(t3v2); }
-            if (isValidMark(t3v3)) { count++; sum += parseNumFallback(t3v3); }
-            if (isValidMark(t3v4)) { count++; sum += parseNumFallback(t3v4); }
-            const midAvg = count > 0 ? sum / count : 0;
-            t2_t3Earned += midAvg + parseNumFallback(t3ex);
-            t2_t3Max += baseMax * 2; t2_t3Valid = true;
-          }
-        });
-
-        coCurricularList.forEach((sub) => {
-          const dbKey = sub === "Sport" ? "sport" : "art";
-          const t1_mid = studentCo[`term1_${dbKey}_test`] ?? studentCo[`term1_sports_test`] ?? "-"; 
-          const t1_ex  = studentCo[`term1_${dbKey}_exam`] ?? studentCo[`term1_sports_exam`] ?? "-";
-          const t1_tot = t1_mid !== "-" || t1_ex !== "-" ? parseNumFallback(t1_mid) + parseNumFallback(t1_ex) : "-";
-
-          const t2_mid = studentCo[`term2_${dbKey}_test`] ?? studentCo[`term2_sports_test`] ?? "-"; 
-          const t2_ex  = studentCo[`term2_${dbKey}_exam`] ?? studentCo[`term2_sports_exam`] ?? "-";
-          const t2_tot = t2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
-
-          const t3_mid = studentCo[`term3_${dbKey}_test`] ?? studentCo[`term3_sports_test`] ?? "-"; 
-          const t3_ex  = studentCo[`term3_${dbKey}_exam`] ?? studentCo[`term3_sports_exam`] ?? "-";
-          const t3_tot = t3_mid !== "-" || t3_ex !== "-" ? parseNumFallback(t3_mid) + parseNumFallback(t3_ex) : "-";
-
-          if (t1_tot !== "-") { t2_t1Earned += parseNumFallback(t1_tot); t2_t1Max += 10; t2_t1Valid = true; }
-          if (t2_tot !== "-") { t2_t2Earned += parseNumFallback(t2_tot); t2_t2Max += 10; t2_t2Valid = true; }
-          if (t3_tot !== "-") { t2_t3Earned += parseNumFallback(t3_tot); t2_t3Max += 10; t2_t3Valid = true; }
-        });
-
-        const t1_annMax = t1_t1Max + t1_t2Max + t1_t3Max;
-        const t1_annEarned = t1_t1Earned + t1_t2Earned + t1_t3Earned;
-        const t2_annMax = t2_t1Max + t2_t2Max + t2_t3Max;
-        const t2_annEarned = t2_t1Earned + t2_t2Earned + t2_t3Earned;
-
-        return {
-          id: student.id,
-          t1: {
-            t1: { earned: t1_t1Earned, max: t1_t1Max, pct: t1_t1Max > 0 ? (t1_t1Earned / t1_t1Max) * 100 : 0, valid: t1_t1Valid },
-            t2: { earned: t1_t2Earned, max: t1_t2Max, pct: t1_t2Max > 0 ? (t1_t2Earned / t1_t2Max) * 100 : 0, valid: t1_t2Valid },
-            t3: { earned: t1_t3Earned, max: t1_t3Max, pct: t1_t3Max > 0 ? (t1_t3Earned / t1_t3Max) * 100 : 0, valid: t1_t3Valid },
-            annual: { earned: t1_annEarned, max: t1_annMax, pct: t1_annMax > 0 ? (t1_annEarned / t1_annMax) * 100 : 0 }
-          },
-          t2: {
-            t1: { earned: t2_t1Earned, max: t2_t1Max, pct: t2_t1Max > 0 ? (t2_t1Earned / t2_t1Max) * 100 : 0, valid: t2_t1Valid },
-            t2: { earned: t2_t2Earned, max: t2_t2Max, pct: t2_t2Max > 0 ? (t2_t2Earned / t2_t2Max) * 100 : 0, valid: t2_t2Valid },
-            t3: { earned: t2_t3Earned, max: t2_t3Max, pct: t2_t3Max > 0 ? (t2_t3Earned / t2_t3Max) * 100 : 0, valid: t2_t3Valid },
-            annual: { earned: t2_annEarned, max: t2_annMax, pct: t2_annMax > 0 ? (t2_annEarned / t2_annMax) * 100 : 0 }
-          }
-        };
-      });
-
-      const alphabetSort = classFiltered.map(s => {
-        const metrics = computedMetrics.find(m => m.id === s.id)!;
-        const getRank = (tableKey: "t1" | "t2", termKey: "t1" | "t2" | "t3" | "annual") => {
-          const list = [...computedMetrics].sort((a, b) => b[tableKey][termKey].pct - a[tableKey][termKey].pct);
-          return list.findIndex(x => x.id === s.id) + 1;
-        };
-
-        return {
-          ...s,
-          metrics,
-          ranks: {
-            t1: { t1: getRank("t1", "t1"), t2: getRank("t1", "t2"), t3: getRank("t1", "t3"), annual: getRank("t1", "annual") },
-            t2: { t1: getRank("t2", "t1"), t2: getRank("t2", "t2"), t3: getRank("t2", "t3"), annual: getRank("t2", "annual") }
-          }
-        };
-      }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-
-      setStudents(alphabetSort);
-    } catch (err) {
-      console.error("Critical System Data Build Interrupted:", err);
-    }
-    setLoading(false);
-  };
-
-  if (authError) return <div className="p-12 text-center text-red-600 font-black uppercase text-xs tracking-wider">{authError}</div>;
-  if (loading) return <div className="p-12 text-center font-black tracking-widest text-blue-900 text-xs uppercase">Assembling Class Report Matrix...</div>;
+  if (loading) return <div className="p-12 text-center font-black tracking-widest text-blue-900 text-xs uppercase">Assembling Comprehensive Report Sheets...</div>;
 
   return (
     <div className="p-4 bg-gray-100 min-h-screen text-[11px] font-black font-sans space-y-12">
@@ -257,18 +215,12 @@ function AnnualMasterEngine() {
         table th, table td { border: 2px solid black !important; padding: 4px 3px !important; }
       `}} />
 
-      {/* Control Module Header Info */}
-      <div className="no-print bg-white p-5 border-2 border-black rounded-xl max-w-xl mx-auto text-center shadow-sm space-y-2">
-        <h2 className="text-xs font-black text-blue-900 uppercase">Annual Report Card Dashboard</h2>
-        <div className="text-[10px] text-gray-500 font-medium">
-          Welcome back, <span className="font-black text-blue-950 uppercase">{currentTeacher?.name}</span>. 
-          Showing stream class sheets for: <span className="font-black text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">{activeClass}</span>
-        </div>
-        <div className="pt-2">
-          <button onClick={() => window.print()} className="bg-blue-900 hover:bg-blue-950 text-white font-black px-5 py-2 rounded-lg text-[10px] uppercase tracking-wider transition-colors">
-            Print Whole Class Register 🖨️
-          </button>
-        </div>
+      <div className="no-print bg-white p-4 border-2 border-black rounded-xl max-w-md mx-auto text-center shadow-sm">
+        <h2 className="text-xs font-black text-blue-900 mb-1 uppercase">Annual Dual-Table Dashboard</h2>
+        <p className="text-gray-400 text-[10px] mb-3">Report calculations and labels completely updated.</p>
+        <button onClick={() => window.print()} className="bg-blue-900 text-white font-black px-4 py-2 rounded-lg text-[10px] uppercase tracking-wider">
+          Print Whole Class Register 🖨️
+        </button>
       </div>
 
       {students.length === 0 ? (
@@ -418,18 +370,21 @@ function AnnualMasterEngine() {
 
                         const mData = studentMarks[sub] || {};
                         
+                        // Term 1 Averaged Mid and Single Exam field
                         const count1 = [mData.term1_t1, mData.term1_m1, mData.term1_t2, mData.term1_m2].filter(isValidMark).length;
                         const sum1 = parseNumFallback(mData.term1_t1) + parseNumFallback(mData.term1_m1) + parseNumFallback(mData.term1_t2) + parseNumFallback(mData.term1_m2);
                         const t1_mid = count1 > 0 ? (sum1 / count1) : "-";
                         const t1_ex = mData.term1_exam !== undefined && mData.term1_exam !== "" ? parseNumFallback(mData.term1_exam) : "-";
                         const t1_tot = t1_mid !== "-" || t1_ex !== "-" ? parseNumFallback(t1_mid) + parseNumFallback(t1_ex) : "-";
 
+                        // Term 2 Averaged Mid and Single Exam field
                         const count2 = [mData.term2_t1, mData.term2_m1, mData.term2_t2, mData.term2_m2].filter(isValidMark).length;
                         const sum2 = parseNumFallback(mData.term2_t1) + parseNumFallback(mData.term2_m1) + parseNumFallback(mData.term2_t2) + parseNumFallback(mData.term2_m2);
                         const t2_mid = count2 > 0 ? (sum2 / count2) : "-";
                         const t2_ex = mData.term2_exam !== undefined && mData.term2_exam !== "" ? parseNumFallback(mData.term2_exam) : "-";
                         const t2_tot = t2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
 
+                        // Term 3 Averaged Mid and Single Exam field
                         const count3 = [mData.term3_t1, mData.term3_m1, mData.term3_t2, mData.term3_m2].filter(isValidMark).length;
                         const sum3 = parseNumFallback(mData.term3_t1) + parseNumFallback(mData.term3_m1) + parseNumFallback(mData.term3_t2) + parseNumFallback(mData.term3_m2);
                         const t3_mid = count3 > 0 ? (sum3 / count3) : "-";
@@ -460,6 +415,7 @@ function AnnualMasterEngine() {
                       {coCurricularList.map((sub) => {
                         const dbKey = sub === "Sport" ? "sport" : "art";
                         
+                        // Smart Lookups checking for both 'sport_test' and 'sports_test' database conventions
                         const t1_mid = studentCo[`term1_${dbKey}_test`] ?? studentCo[`term1_sports_test`] ?? "-"; 
                         const t1_ex  = studentCo[`term1_${dbKey}_exam`] ?? studentCo[`term1_sports_exam`] ?? "-";
                         const t1_tot = t1_mid !== "-" || t1_ex !== "-" ? parseNumFallback(t1_mid) + parseNumFallback(t1_ex) : "-";
@@ -526,7 +482,7 @@ function AnnualMasterEngine() {
                   </table>
                 </div>
 
-                {/* Footnotes Layout Remarks */}
+                {/* Institutional Remarks, Accountability & Authentication Grid Layout Footnotes */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 text-[9px] font-black uppercase text-gray-700 border-t-2 border-dashed border-gray-400">
                   <div className="space-y-1 bg-gray-50 p-2.5 border border-black rounded-lg">
                     <span className="text-gray-400 block text-[8px]">Class Teacher Observations:</span>
@@ -568,3 +524,4 @@ export default function AnnualMasterPage() {
     </Suspense>
   );
 }
+

@@ -1,11 +1,12 @@
 "use client";
-
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { db, auth } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase/firestore";
 
 export default function TeacherPage() {
+  const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "BIZIMANA FELIX" });
   const [selectedClass, setSelectedClass] = useState("");
@@ -13,7 +14,7 @@ export default function TeacherPage() {
   const [selectedTerm, setSelectedTerm] = useState("ACADEMIC TERM 1");
   const [students, setStudents] = useState<any[]>([]);
   const [outOf, setOutOf] = useState(50);
-  
+
   // View mode state switcher: "academic" or "cocurricular"
   const [entryMode, setEntryMode] = useState<"academic" | "cocurricular">("academic");
   // Co-curricular marks state matrix
@@ -25,20 +26,19 @@ export default function TeacherPage() {
         setUser(u);
         const snap = await getDoc(doc(db, "teachers", u.email.toLowerCase()));
         if (snap.exists()) {
-          const d = snap.data(); 
-          
+          const d = snap.data();
+
           const combinedClasses = [...(d.classes || [])];
           if (d.classTeacherOf && !combinedClasses.includes(d.classTeacherOf)) {
             combinedClasses.push(d.classTeacherOf);
           }
-
           setConfig({
             ...d,
             classes: combinedClasses,
             classTeacherOf: d.classTeacherOf || ""
           });
-          
-          setSelectedClass(d.classes[0] || d.classTeacherOf || ""); 
+
+          setSelectedClass(d.classes[0] || d.classTeacherOf || "");
           setSelectedSubject(d.subjects?.[0] || "");
         }
       }
@@ -58,13 +58,12 @@ export default function TeacherPage() {
   useEffect(() => {
     if (!selectedClass) return;
     if (entryMode === "academic" && !selectedSubject) return;
-
     const load = async () => {
       try {
         const snap = await getDocs(query(collection(db, "students"), where("class", "==", selectedClass)));
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
         setStudents(list);
-
+        
         if (entryMode === "academic") {
           for (const s of list) {
             const mSnap = await getDoc(doc(db, "students", s.id, "marks", selectedSubject));
@@ -88,7 +87,6 @@ export default function TeacherPage() {
               sport_p1: "", sport_p2: "", sport_total: 0,
               art_p1: "", art_p2: "", art_total: 0
             };
-
             const sportSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "sport"));
             if (sportSnap.exists()) {
               const data = sportSnap.data();
@@ -96,7 +94,6 @@ export default function TeacherPage() {
               loadedCoCurricular[s.id].sport_p2 = data.p2 !== undefined ? data.p2 : "";
               loadedCoCurricular[s.id].sport_total = Number(data.p1 || 0) + Number(data.p2 || 0);
             }
-
             const artSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "creative_art"));
             if (artSnap.exists()) {
               const data = artSnap.data();
@@ -123,16 +120,15 @@ export default function TeacherPage() {
 
   const saveCoCurricularField = async (studentId: string, activityType: "sport" | "creative_art", fieldPart: "p1" | "p2", rawValue: string) => {
     const numVal = rawValue === "" ? "" : Number(rawValue);
-    
+
     if (rawValue !== "" && (Number(rawValue) > 5 || Number(rawValue) < 0)) {
       alert("⚠️ Invalid Input! Marks must be between 0 and 5.");
       return;
     }
-
     setCoCurricularMarks(prev => {
       const currentStudentData = prev[studentId] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
       const updated = { ...currentStudentData };
-      
+
       if (activityType === "sport") {
         if (fieldPart === "p1") updated.sport_p1 = rawValue;
         if (fieldPart === "p2") updated.sport_p2 = rawValue;
@@ -142,10 +138,8 @@ export default function TeacherPage() {
         if (fieldPart === "p2") updated.art_p2 = rawValue;
         updated.art_total = Number(updated.art_p1 || 0) + Number(updated.art_p2 || 0);
       }
-
       return { ...prev, [studentId]: updated };
     });
-
     const dbPayload = fieldPart === "p1" ? { p1: numVal } : { p2: numVal };
     await setDoc(doc(db, "students", studentId, "co_curricular", activityType), dbPayload, { merge: true });
   };
@@ -163,33 +157,51 @@ export default function TeacherPage() {
         </div>
         <div className="flex items-center gap-3">
           {/* Main Co-Curricular Mode Control Switcher */}
-          <button 
+          <button
             onClick={() => setEntryMode(entryMode === "academic" ? "cocurricular" : "academic")}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow border border-emerald-500 transition-all"
           >
             {entryMode === "academic" ? "🏆 Go to Co-Curricular" : "📖 Go to Academic Marks"}
           </button>
-
+          
+          {/* INTERCONNECTED REPORT PROCESSING HUB */}
           {config.classTeacherOf && (
-            <button className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
-              OBSERVE MY CLASS REPORTS 📋 (STREAM {config.classTeacherOf})
-            </button>
+            <div className="flex items-center bg-slate-800/80 p-1 rounded-lg border border-slate-700 gap-1">
+              {/* BUTTON 1: MID TERMS REPORT VIEWER */}
+              <button 
+                onClick={() => router.push(`/reports/midterm?class=${config.classTeacherOf.toUpperCase()}&term=${selectedTerm.replace(/\s+/g, "")}`)}
+                className="bg-[#3A6073] hover:bg-[#2B4C5E] text-white font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all flex items-center gap-1"
+              >
+                📊 MID-TERMS ({config.classTeacherOf})
+              </button>
+
+              {/* BUTTON 2: WHOLE YEAR ANNUAL MATRIX VIEWER */}
+              <button 
+                onClick={() => router.push(`/reports/annual?class=${config.classTeacherOf.toUpperCase()}`)}
+                className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all flex items-center gap-1"
+              >
+                🖨️ ANNUAL SHEETS ({config.classTeacherOf})
+              </button>
+            </div>
           )}
-          <button className="bg-[#8B1E1E] hover:bg-red-800 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
+          
+          <button 
+            onClick={() => router.push("/login")}
+            className="bg-[#8B1E1E] hover:bg-red-800 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all"
+          >
             SIGN OUT
           </button>
         </div>
       </div>
-
+      
       <div className="max-w-[1400px] mx-auto px-6 mt-6">
-        
         {/* DROPDOWN FILTER CARD CONTAINER */}
         <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm mb-6 flex gap-6">
           <div className="flex-1">
             <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">TARGET MATRIX STREAM</label>
             {entryMode === "academic" ? (
-              <select 
-                value={selectedClass} 
+              <select
+                value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
                 className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
               >
@@ -203,10 +215,9 @@ export default function TeacherPage() {
               </div>
             )}
           </div>
-
           <div className="flex-1">
             <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">ASSESSMENT TARGET TERM</label>
-            <select 
+            <select
               value={selectedTerm}
               onChange={(e) => setSelectedTerm(e.target.value)}
               className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none cursor-pointer"
@@ -226,23 +237,22 @@ export default function TeacherPage() {
                 {entryMode === "academic" ? "MARKS GRADING DASHBOARD" : "CO-CURRICULAR SKILLS EVALUATION"}
               </h2>
               <p className="text-[10px] text-slate-500 uppercase font-bold mt-0.5">
-                {entryMode === "academic" 
-                  ? `STREAM ${selectedClass} LEVEL • ${selectedSubject}` 
+                {entryMode === "academic"
+                  ? `STREAM ${selectedClass} LEVEL • ${selectedSubject}`
                   : `STREAM ${config.classTeacherOf} SPECIALIZED CO-CURRICULAR TRACK`}
               </p>
               <p className="text-emerald-600 text-[10px] font-bold uppercase mt-1">
                 💡 Click top input, paste whole column from Excel, use Enter key to navigate!
               </p>
             </div>
-
             {entryMode === "academic" ? (
               <div className="flex items-center gap-3">
                 <span className="font-black text-[10px] uppercase text-slate-500">PAPER MAX:</span>
-                <input 
-                  type="number" 
-                  value={outOf} 
-                  onChange={(e) => setOutOf(Number(e.target.value))} 
-                  className="w-16 text-slate-900 font-black p-2 text-center rounded-xl border-2 border-slate-900 outline-none text-xs" 
+                <input
+                  type="number"
+                  value={outOf}
+                  onChange={(e) => setOutOf(Number(e.target.value))}
+                  className="w-16 text-slate-900 font-black p-2 text-center rounded-xl border-2 border-slate-900 outline-none text-xs"
                 />
                 <button className="bg-[#00875A] hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow transition-all">
                   COMMIT & LOCK TERM MARKS 💾
@@ -273,13 +283,13 @@ export default function TeacherPage() {
                       <td className="p-4 font-black uppercase border-r border-slate-300 text-[#11224D]">{s.name}</td>
                       {["t1", "m1", "t2", "m2", "exam"].map(f => (
                         <td key={f} className="p-2 border-r border-slate-300">
-                          <input 
-                            id={`${f}-${s.id}`} 
-                            type="number" 
-                            onBlur={(e) => saveAcademic(s.id, f, e.target.value)} 
-                            onKeyDown={(e) => {if(e.key==="Enter") document.getElementById(`${f}-${students[idx+1]?.id}`)?.focus();}} 
-                            className="w-full max-w-[100px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-slate-900 text-sm" 
-                            placeholder="0" 
+                          <input
+                            id={`${f}-${s.id}`}
+                            type="number"
+                            onBlur={(e) => saveAcademic(s.id, f, e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") document.getElementById(`${f}-${students[idx + 1]?.id}`)?.focus(); }}
+                            className="w-full max-w-[100px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-slate-900 text-sm"
+                            placeholder="0"
                           />
                         </td>
                       ))}
@@ -310,51 +320,47 @@ export default function TeacherPage() {
                     return (
                       <tr key={s.id} className="hover:bg-emerald-50/20 transition-colors">
                         <td className="p-4 font-black uppercase border-r border-slate-300 text-slate-900">{s.name}</td>
-                        
-                        {/* SPORT FIELD ENTRYS */}
                         <td className="p-2 border-r border-slate-300">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             min={0} max={5}
                             value={currentMarks.sport_p1}
                             onChange={(e) => saveCoCurricularField(s.id, "sport", "p1", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-emerald-600 text-sm" 
-                            placeholder="/5" 
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-emerald-600 text-sm"
+                            placeholder="/5"
                           />
                         </td>
                         <td className="p-2 border-r border-slate-300">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             min={0} max={5}
                             value={currentMarks.sport_p2}
                             onChange={(e) => saveCoCurricularField(s.id, "sport", "p2", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-emerald-600 text-sm" 
-                            placeholder="/5" 
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-emerald-600 text-sm"
+                            placeholder="/5"
                           />
                         </td>
                         <td className="p-4 text-center font-black bg-green-50 text-green-700 text-md border-r border-slate-300">
                           {currentMarks.sport_total}
                         </td>
-
-                        {/* ART FIELD ENTRYS */}
                         <td className="p-2 border-r border-slate-300">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             min={0} max={5}
                             value={currentMarks.art_p1}
                             onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p1", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-teal-600 text-sm" 
-                            placeholder="/5" 
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-teal-600 text-sm"
+                            placeholder="/5"
                           />
                         </td>
                         <td className="p-2 border-r border-slate-300">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             min={0} max={5}
                             value={currentMarks.art_p2}
                             onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p2", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-teal-600 text-sm" 
-                            placeholder="/5" 
+                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 outline-none focus:border-teal-600 text-sm"
+                            placeholder="/5"
                           />
                         </td>
                         <td className="p-4 text-center font-black bg-teal-50 text-teal-700 text-md">

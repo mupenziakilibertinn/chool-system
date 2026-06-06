@@ -1,12 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation"; // Added missing import
+import { useRouter } from "next/navigation"; 
 import { db, auth } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase/firestore";
 
 export default function TeacherPage() {
-  const router = useRouter(); // Initialized missing router hook
+  const router = useRouter(); 
   const [user, setUser] = useState<any>(null);
   const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "BIZIMANA FELIX" });
   const [selectedClass, setSelectedClass] = useState("");
@@ -15,9 +15,7 @@ export default function TeacherPage() {
   const [students, setStudents] = useState<any[]>([]);
   const [outOf, setOutOf] = useState(50);
 
-  // View mode state switcher: "academic" or "cocurricular"
   const [entryMode, setEntryMode] = useState<"academic" | "cocurricular">("academic");
-  // Co-curricular marks state matrix
   const [coCurricularMarks, setCoCurricularMarks] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -46,7 +44,6 @@ export default function TeacherPage() {
     return () => unsub();
   }, []);
 
-  // Sync selected class automatically when toggling between entry view modes
   useEffect(() => {
     if (entryMode === "cocurricular" && config.classTeacherOf) {
       setSelectedClass(config.classTeacherOf);
@@ -148,8 +145,6 @@ export default function TeacherPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-xs pb-12">
-      
-      {/* AUTH & PROFILE HEADER BAR */}
       <div className="bg-[#11224D] text-white px-8 py-4 flex justify-between items-center shadow-md">
         <div>
           <div className="text-[10px] uppercase font-black text-blue-400 tracking-wider">ACTIVE INSTRUCTOR</div>
@@ -191,7 +186,6 @@ export default function TeacherPage() {
       </div>
       
       <div className="max-w-[1400px] mx-auto px-6 mt-6">
-        {/* DROPDOWN FILTER CARD CONTAINER */}
         <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm mb-6 flex gap-4">
           <div className="flex-1">
             <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">TARGET MATRIX STREAM</label>
@@ -212,7 +206,6 @@ export default function TeacherPage() {
             )}
           </div>
 
-          {/* Integrated Subject Filter Mapping dropdown controls */}
           {entryMode === "academic" && (
             <div className="flex-1">
               <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">ASSIGNED COURSE SUBJECT</label>
@@ -242,7 +235,6 @@ export default function TeacherPage() {
           </div>
         </div>
 
-        {/* MAIN ROSTER DASHBOARD COMPONENT */}
         <div className="bg-white rounded-2xl border border-slate-900 p-6 shadow-sm overflow-hidden">
           <div className="flex justify-between items-center mb-6">
             <div>
@@ -275,7 +267,6 @@ export default function TeacherPage() {
             )}
           </div>
 
-          {/* EVALUATION MATRIX DATA GRID */}
           <div className="border-2 border-slate-900 rounded-xl overflow-hidden">
             {entryMode === "academic" ? (
               <table className="w-full text-left border-collapse">

@@ -2,7 +2,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { db } from "../../../lib/firebase";
-import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 
 const subjectsList = ["Mathematics", "SET", "SRE", "Kinyarwanda", "French", "English"];
 const coCurricularList = ["Sport", "Creative Art"];
@@ -23,56 +23,46 @@ function AnnualMasterEngine() {
   const parseNumFallback = (val: any) => (val === undefined || val === null || val === "-") ? 0 : Number(val);
   const isValidMark = (val: any) => val !== undefined && val !== null && val !== "";
 
-  // Step 1: Authenticate Teacher and Locate Assigned Stream Allocation Matrix
   useEffect(() => {
     const verifyTeacherAndClass = async () => {
       setLoading(true);
       if (typeof window === "undefined") return;
 
+      // 1. Get the exact email of whoever is currently logged in
       const savedEmail = localStorage.getItem("teacherEmail");
       if (!savedEmail) {
         setAuthError("No active authentication profile discovered. Please log in first.");
         setLoading(false);
-        router.push("/login"); // Adjust path to match your exact route
+        router.push("/login");
         return;
       }
 
       try {
         const cleanEmail = savedEmail.trim().toLowerCase();
         
-        // Target the teachers database sheet
-        const teacherQuery = query(collection(db, "teachers"), where("email", "==", cleanEmail));
+        // 2. Query Firestore strictly matching this specific logged-in email
+        const teacherQuery = query(
+          collection(db, "teachers"), 
+          where("email", "==", cleanEmail)
+        );
         const teacherSnap = await getDocs(teacherQuery);
 
         if (teacherSnap.empty) {
-          setAuthError("Your account profile was not located within the staff record registry.");
+          setAuthError(`Profile for ${cleanEmail} was not found in the school registry.`);
           setLoading(false);
           return;
         }
 
+        // 3. Extract correct teacher records matching the account
         const teacherDoc = teacherSnap.docs[0];
         const teacherData = teacherDoc.data();
         setCurrentTeacher(teacherData);
 
-        // Determine target stream from URL parameters or fallback to the teacher's registered main class assignment
+        // 4. Set class from URL parameter OR fall back to their registered class assignment
         let targetClass = urlClass ? urlClass.toUpperCase() : "";
-        
         if (!targetClass) {
-          if (teacherData.class) {
-            targetClass = teacherData.class.toUpperCase();
-          } else if (teacherData.assignedClass) {
-            targetClass = teacherData.assignedClass.toUpperCase();
-          } else {
-            targetClass = "P3"; // System backup fallback baseline parameter
-          }
+          targetClass = (teacherData.class || teacherData.assignedClass || "P3").toUpperCase();
         }
-
-        // Optional Security enforcement: Stop standard accounts from checking unallocated streams
-        // if (teacherData.role !== "admin" && targetClass !== teacherData.class?.toUpperCase()) {
-        //   setAuthError("Access Violation: You do not possess clearance for this stream's report matrix.");
-        //   setLoading(false);
-        //   return;
-        // }
 
         setActiveClass(targetClass);
         await buildAnnualReportMatrix(targetClass);
@@ -87,7 +77,6 @@ function AnnualMasterEngine() {
     verifyTeacherAndClass();
   }, [urlClass]);
 
-  // Step 2: Build Report Datasets for the Target Stream
   const buildAnnualReportMatrix = async (targetClass: string) => {
     try {
       const sSnap = await getDocs(collection(db, "students"));
@@ -272,7 +261,7 @@ function AnnualMasterEngine() {
       <div className="no-print bg-white p-5 border-2 border-black rounded-xl max-w-xl mx-auto text-center shadow-sm space-y-2">
         <h2 className="text-xs font-black text-blue-900 uppercase">Annual Report Card Dashboard</h2>
         <div className="text-[10px] text-gray-500 font-medium">
-          Welcome back, <span className="font-black text-gray-800">{currentTeacher?.name || "Teacher"}</span>. 
+          Welcome back, <span className="font-black text-blue-950 uppercase">{currentTeacher?.name}</span>. 
           Showing stream class sheets for: <span className="font-black text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">{activeClass}</span>
         </div>
         <div className="pt-2">

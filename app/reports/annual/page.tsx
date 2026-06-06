@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { db } from "../../lib/firebase";
+import { db } from "../../../lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 
 const subjectsList = ["Mathematics", "SET", "SRE", "Kinyarwanda", "French", "English"];
@@ -30,7 +30,6 @@ function AnnualMasterEngine() {
           const mSnap = await getDocs(collection(db, "students", student.id, "marks"));
           marksMatrix[student.id] = {};
           mSnap.forEach((docSnap) => {
-            // Keep keys standard to match database document references perfectly
             marksMatrix[student.id][docSnap.id] = docSnap.data();
           });
         }));
@@ -55,9 +54,9 @@ function AnnualMasterEngine() {
               const v4 = mData[`${tKey}_m2`];
 
               if (v1 !== undefined && v1 !== "-") earned += Number(v1);
-              if (v2 !== "-") earned += Number(v2 || 0);
-              if (v3 !== "-") earned += Number(v3 || 0);
-              if (v4 !== "-") earned += Number(v4 || 0);
+              if (v2 !== undefined && v2 !== "-") earned += Number(v2);
+              if (v3 !== undefined && v3 !== "-") earned += Number(v3);
+              if (v4 !== undefined && v4 !== "-") earned += Number(v4);
               maxPossible += (baseMax * 4);
             });
           });
@@ -83,9 +82,9 @@ function AnnualMasterEngine() {
               const v4 = mData[`${tKey}_m2`];
 
               if (v1 !== undefined && v1 !== "-") earned += Number(v1);
-              if (v2 !== "-") earned += Number(v2 || 0);
-              if (v3 !== "-") earned += Number(v3 || 0);
-              if (v4 !== "-") earned += Number(v4 || 0);
+              if (v2 !== undefined && v2 !== "-") earned += Number(v2);
+              if (v3 !== undefined && v3 !== "-") earned += Number(v3);
+              if (v4 !== undefined && v4 !== "-") earned += Number(v4);
               maxPossible += (baseMax * 4);
             });
           });
@@ -104,7 +103,7 @@ function AnnualMasterEngine() {
           return { ...student, earned, maxPossible, pct: maxPossible > 0 ? (earned / maxPossible) * 100 : 0 };
         });
 
-        // Map safe objects to avoid breakdown errors on empty fields
+        // Map objects to avoid breakdown errors on empty fields
         const alphabeticalList = classFiltered.map(s => {
           const r1 = [...t1Calculated].sort((a,b) => b.pct - a.pct);
           const r2 = [...t2Calculated].sort((a,b) => b.pct - a.pct);
@@ -349,7 +348,7 @@ function AnnualMasterEngine() {
                       const t1_tot = t1_mid !== "-" || t1_ex !== "-" ? parseNumFallback(t1_mid) + parseNumFallback(t1_ex) : "-";
 
                       const t2_mid = mData.term2_t1 ?? "-"; const t2_ex = mData.term2_m1 ?? "-";
-                      const t2_tot = t2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
+                      const t2_tot = mData.term2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
 
                       const t3_mid = mData.term3_t1 ?? "-"; const t3_ex = mData.term3_m1 ?? "-";
                       const t3_tot = t3_mid !== "-" || t3_ex !== "-" ? parseNumFallback(t3_mid) + parseNumFallback(t3_ex) : "-";

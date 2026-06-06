@@ -129,25 +129,26 @@ function AnnualMasterEngine() {
             }
           });
 
-          // Inject Co-curricular outputs directly using your exact database keys
+          // Inject Co-curricular outputs directly using safe fallback variations
           coCurricularList.forEach((sub) => {
             const dbKey = sub === "Sport" ? "sport" : "art";
-            const t1_t = studentCo[`term1_${dbKey}_test`]; const t1_e = studentCo[`term1_${dbKey}_exam`];
-            const t2_t = studentCo[`term2_${dbKey}_test`]; const t2_e = studentCo[`term2_${dbKey}_exam`];
-            const t3_t = studentCo[`term3_${dbKey}_test`]; const t3_e = studentCo[`term3_${dbKey}_exam`];
+            
+            const t1_t = studentCo[`term1_${dbKey}_test`] ?? studentCo[`term1_sports_test`] ?? "-"; 
+            const t1_e = studentCo[`term1_${dbKey}_exam`] ?? studentCo[`term1_sports_exam` ] ?? "-";
+            
+            const t2_t = studentCo[`term2_${dbKey}_test`] ?? studentCo[`term2_sports_test`] ?? "-"; 
+            const t2_e = studentCo[`term2_${dbKey}_exam`] ?? studentCo[`term2_sports_exam` ] ?? "-";
+            
+            const t3_t = studentCo[`term3_${dbKey}_test`] ?? studentCo[`term3_sports_test`] ?? "-"; 
+            const t3_e = studentCo[`term3_${dbKey}_exam`] ?? studentCo[`term3_sports_exam` ] ?? "-";
 
-            if (isValidMark(t1_t) || isValidMark(t1_e)) {
-              t2_t1Earned += parseNumFallback(t1_t) + parseNumFallback(t1_e);
-              t2_t1Max += 10; t2_t1Valid = true;
-            }
-            if (isValidMark(t2_t) || isValidMark(t2_e)) {
-              t2_t2Earned += parseNumFallback(t2_t) + parseNumFallback(t2_e);
-              t2_t2Max += 10; t2_t2Valid = true;
-            }
-            if (isValidMark(t3_t) || isValidMark(t3_e)) {
-              t2_t3Earned += parseNumFallback(t3_t) + parseNumFallback(t3_e);
-              t2_t3Max += 10; t2_t3Valid = true;
-            }
+            const t1_tot = (t1_t !== "-" || t1_e !== "-") ? parseNumFallback(t1_t) + parseNumFallback(t1_e) : "-";
+            const t2_tot = (t2_t !== "-" || t2_e !== "-") ? parseNumFallback(t2_t) + parseNumFallback(t2_e) : "-";
+            const t3_tot = (t3_t !== "-" || t3_e !== "-") ? parseNumFallback(t3_t) + parseNumFallback(t3_e) : "-";
+
+            if (t1_tot !== "-") { t2_t1Earned += parseNumFallback(t1_tot); t2_t1Max += 10; t2_t1Valid = true; }
+            if (t2_tot !== "-") { t2_t2Earned += parseNumFallback(t2_tot); t2_t2Max += 10; t2_t2Valid = true; }
+            if (t3_tot !== "-") { t2_t3Earned += parseNumFallback(t3_tot); t2_t3Max += 10; t2_t3Valid = true; }
           });
 
           const t1_annMax = t1_t1Max + t1_t2Max + t1_t3Max;
@@ -413,27 +414,34 @@ function AnnualMasterEngine() {
 
                       {coCurricularList.map((sub) => {
                         const dbKey = sub === "Sport" ? "sport" : "art";
-                        const t1_mid = studentCo[`term1_${dbKey}_test`] ?? "-"; const t1_ex = studentCo[`term1_${dbKey}_exam`] ?? "-";
+                        
+                        // Smart Lookups checking for both 'sport_test' and 'sports_test' database conventions
+                        const t1_mid = studentCo[`term1_${dbKey}_test`] ?? studentCo[`term1_sports_test`] ?? "-"; 
+                        const t1_ex  = studentCo[`term1_${dbKey}_exam`] ?? studentCo[`term1_sports_exam`] ?? "-";
                         const t1_tot = t1_mid !== "-" || t1_ex !== "-" ? parseNumFallback(t1_mid) + parseNumFallback(t1_ex) : "-";
 
-                        const t2_mid = studentCo[`term2_${dbKey}_test`] ?? "-"; const t2_ex = studentCo[`term2_${dbKey}_exam`] ?? "-";
+                        const t2_mid = studentCo[`term2_${dbKey}_test`] ?? studentCo[`term2_sports_test`] ?? "-"; 
+                        const t2_ex  = studentCo[`term2_${dbKey}_exam`] ?? studentCo[`term2_sports_exam`] ?? "-";
                         const t2_tot = t2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
 
-                        const t3_mid = studentCo[`term3_${dbKey}_test`] ?? "-"; const t3_ex = studentCo[`term3_${dbKey}_exam`] ?? "-";
+                        const t3_mid = studentCo[`term3_${dbKey}_test`] ?? studentCo[`term3_sports_test`] ?? "-"; 
+                        const t3_ex  = studentCo[`term3_${dbKey}_exam`] ?? studentCo[`term3_sports_exam`] ?? "-";
                         const t3_tot = t3_mid !== "-" || t3_ex !== "-" ? parseNumFallback(t3_mid) + parseNumFallback(t3_ex) : "-";
 
-                        const rowEarned = (t1_tot !== "-" ? t1_tot : 0) + (t2_tot !== "-" ? t2_tot : 0) + (t3_tot !== "-" ? t3_tot : 0);
+                        const rowEarned = (t1_tot !== "-" ? parseNumFallback(t1_tot) : 0) + 
+                                          (t2_tot !== "-" ? parseNumFallback(t2_tot) : 0) + 
+                                          (t3_tot !== "-" ? parseNumFallback(t3_tot) : 0);
                         const rowMax = 30;
 
                         return (
                           <tr key={sub} className="text-gray-900 font-black">
                             <td className="text-left pl-2 uppercase bg-gray-50/40 border-r-2">{sub}</td>
                             <td>5</td><td>5</td><td className="bg-gray-100 font-bold">10</td>
-                            <td>{t1_mid}</td><td>{t1_ex}</td><td className="bg-gray-100 font-bold">{t1_tot}</td>
-                            <td>{t2_mid}</td><td>{t2_ex}</td><td className="bg-gray-100 font-bold">{t2_tot}</td>
-                            <td>{t3_mid}</td><td>{t3_ex}</td><td className="bg-gray-100 font-bold">{t3_tot}</td>
+                            <td>{t1_mid}</td><td>{t1_ex}</td><td className="bg-gray-100 font-bold">{typeof t1_tot === "number" ? t1_tot.toFixed(1) : t1_tot}</td>
+                            <td>{t2_mid}</td><td>{t2_ex}</td><td className="bg-gray-100 font-bold">{typeof t2_tot === "number" ? t2_tot.toFixed(1) : t2_tot}</td>
+                            <td>{t3_mid}</td><td>{t3_ex}</td><td className="bg-gray-100 font-bold">{typeof t3_tot === "number" ? t3_tot.toFixed(1) : t3_tot}</td>
                             <td className="bg-gray-50">{rowMax}</td>
-                            <td className="text-blue-900 font-black">{rowEarned}</td>
+                            <td className="text-blue-900 font-black">{rowEarned.toFixed(1)}</td>
                             <td className="text-green-800 font-serif">{(rowEarned / rowMax * 100).toFixed(1)}%</td>
                           </tr>
                         );
@@ -444,8 +452,8 @@ function AnnualMasterEngine() {
                         <td className="text-left pl-2 uppercase">TOTAL GENERAL</td>
                         <td>-</td><td>-</td><td className="bg-blue-950">-</td>
                         <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t1.valid ? `${m.t2.t1.earned.toFixed(1)} / ${m.t2.t1.max}` : "-"}</td>
-                        <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t2.valid ? `${m.t2.t2.earned.toFixed(1)} / ${m.t2.t2.max}` : "-"}</td>
-                        <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t3.valid ? `${m.t2.t3.earned.toFixed(1)} / ${m.t2.t3.max}` : "-"}</td>
+                        <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t2.earned > 0 ? `${m.t2.t2.earned.toFixed(1)} / ${m.t2.t2.max}` : "-"}</td>
+                        <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t3.earned > 0 ? `${m.t2.t3.earned.toFixed(1)} / ${m.t2.t3.max}` : "-"}</td>
                         <td className="bg-blue-950 font-serif">{m.t2.annual.max}</td>
                         <td className="text-white font-serif">{m.t2.annual.earned.toFixed(1)}</td>
                         <td className="text-white font-serif">{m.t2.annual.pct.toFixed(1)}%</td>

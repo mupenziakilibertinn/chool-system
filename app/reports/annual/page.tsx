@@ -61,13 +61,13 @@ function AnnualMasterEngine() {
             
             // Raw Fields
             const t1v1 = mData.term1_t1; const t1v2 = mData.term1_m1;
-            const t1v3 = mData.term1_t2; const t1v4 = mData.term1_m2;
+            const t1v3 = mData.term1_t2; // Single field for exam
 
             const t2v1 = mData.term2_t1; const t2v2 = mData.term2_m1;
-            const t2v3 = mData.term2_t2; const t2v4 = mData.term2_m2;
+            const t2v3 = mData.term2_t2; // Single field for exam
 
             const t3v1 = mData.term3_t1; const t3v2 = mData.term3_m1;
-            const t3v3 = mData.term3_t2; const t3v4 = mData.term3_m2;
+            const t3v3 = mData.term3_t2; // Single field for exam
 
             // Table 1: Mid 1 + Mid 2 raw accumulation per term
             if (isValidMark(t1v1) || isValidMark(t1v2)) {
@@ -83,25 +83,25 @@ function AnnualMasterEngine() {
               t1_t3Max += baseMax * 2; t1_t3Valid = true;
             }
 
-            // Table 2 (Final Report Card): Mid averaged out of 50, Exam out of 50
-            if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3) || isValidMark(t1v4)) {
+            // Table 2 (Final Report Card): Mid averaged out of 50, Exam is a single field out of 50
+            if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3)) {
               const t1_midAvg = (parseNumFallback(t1v1) + parseNumFallback(t1v2)) / 2;
-              const t1_examSum = parseNumFallback(t1v3) + parseNumFallback(t1v4);
-              t2_t1Earned += t1_midAvg + t1_examSum;
+              const t1_examSingle = parseNumFallback(t1v3);
+              t2_t1Earned += t1_midAvg + t1_examSingle;
               t2_t1Max += baseMax * 2; 
               t2_t1Valid = true;
             }
-            if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3) || isValidMark(t2v4)) {
+            if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3)) {
               const t2_midAvg = (parseNumFallback(t2v1) + parseNumFallback(t2v2)) / 2;
-              const t2_examSum = parseNumFallback(t2v3) + parseNumFallback(t2v4);
-              t2_t2Earned += t2_midAvg + t2_examSum;
+              const t2_examSingle = parseNumFallback(t2v3);
+              t2_t2Earned += t2_midAvg + t2_examSingle;
               t2_t2Max += baseMax * 2;
               t2_t2Valid = true;
             }
-            if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3) || isValidMark(t3v4)) {
+            if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3)) {
               const t3_midAvg = (parseNumFallback(t3v1) + parseNumFallback(t3v2)) / 2;
-              const t3_examSum = parseNumFallback(t3v3) + parseNumFallback(t3v4);
-              t2_t3Earned += t3_midAvg + t3_examSum;
+              const t3_examSingle = parseNumFallback(t3v3);
+              t2_t3Earned += t3_midAvg + t3_examSingle;
               t2_t3Max += baseMax * 2;
               t2_t3Valid = true;
             }
@@ -363,25 +363,22 @@ function AnnualMasterEngine() {
 
                       const mData = studentMarks[sub] || {};
                       
-                      // Term 1 Averaged Mid and Exam Summation
+                      // Term 1 Averaged Mid and Single Exam field
                       const t1_mid = (mData.term1_t1 !== undefined || mData.term1_m1 !== undefined) 
                         ? (parseNumFallback(mData.term1_t1) + parseNumFallback(mData.term1_m1)) / 2 : "-";
-                      const t1_ex = (mData.term1_t2 !== undefined || mData.term1_m2 !== undefined) 
-                        ? parseNumFallback(mData.term1_t2) + parseNumFallback(mData.term1_m2) : "-";
+                      const t1_ex = mData.term1_t2 !== undefined ? parseNumFallback(mData.term1_t2) : "-";
                       const t1_tot = t1_mid !== "-" || t1_ex !== "-" ? parseNumFallback(t1_mid) + parseNumFallback(t1_ex) : "-";
 
-                      // Term 2 Averaged Mid and Exam Summation
+                      // Term 2 Averaged Mid and Single Exam field
                       const t2_mid = (mData.term2_t1 !== undefined || mData.term2_m1 !== undefined) 
                         ? (parseNumFallback(mData.term2_t1) + parseNumFallback(mData.term2_m1)) / 2 : "-";
-                      const t2_ex = (mData.term2_t2 !== undefined || mData.term2_m2 !== undefined) 
-                        ? parseNumFallback(mData.term2_t2) + parseNumFallback(mData.term2_m2) : "-";
+                      const t2_ex = mData.term2_t2 !== undefined ? parseNumFallback(mData.term2_t2) : "-";
                       const t2_tot = t2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
 
-                      // Term 3 Averaged Mid and Exam Summation
+                      // Term 3 Averaged Mid and Single Exam field
                       const t3_mid = (mData.term3_t1 !== undefined || mData.term3_m1 !== undefined) 
                         ? (parseNumFallback(mData.term3_t1) + parseNumFallback(mData.term3_m1)) / 2 : "-";
-                      const t3_ex = (mData.term3_t2 !== undefined || mData.term3_m2 !== undefined) 
-                        ? parseNumFallback(mData.term3_t2) + parseNumFallback(mData.term3_m2) : "-";
+                      const t3_ex = mData.term3_t2 !== undefined ? parseNumFallback(mData.term3_t2) : "-";
                       const t3_tot = t3_mid !== "-" || t3_ex !== "-" ? parseNumFallback(t3_mid) + parseNumFallback(t3_ex) : "-";
 
                       const rowEarned = (t1_tot !== "-" ? t1_tot : 0) + (t2_tot !== "-" ? t2_tot : 0) + (t3_tot !== "-" ? t3_tot : 0);

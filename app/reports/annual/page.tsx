@@ -82,18 +82,18 @@ function AnnualMasterEngine() {
             const t3v3 = mData.term3_t2; const t3v4 = mData.term3_m2;
             const t3ex = mData.term3_exam; 
 
-            // Table 1 accumulators
-            if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3) || isValidMark(t1v4)) {
-              t1_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2) + parseNumFallback(t1v3) + parseNumFallback(t1v4);
-              t1_t1Max += baseMax * 4; t1_t1Valid = true;
+            // Table 1 accumulators (Quiz 1 + Quiz 2 totals per term)
+            if (isValidMark(t1v1) || isValidMark(t1v2)) {
+              t1_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2);
+              t1_t1Max += baseMax * 2; t1_t1Valid = true;
             }
-            if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3) || isValidMark(t2v4)) {
-              t1_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2) + parseNumFallback(t2v3) + parseNumFallback(t2v4);
-              t1_t2Max += baseMax * 4; t1_t2Valid = true;
+            if (isValidMark(t2v1) || isValidMark(t2v2)) {
+              t1_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2);
+              t1_t2Max += baseMax * 2; t1_t2Valid = true;
             }
-            if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3) || isValidMark(t3v4)) {
-              t1_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2) + parseNumFallback(t3v3) + parseNumFallback(t3v4);
-              t1_t3Max += baseMax * 4; t1_t3Valid = true;
+            if (isValidMark(t3v1) || isValidMark(t3v2)) {
+              t1_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2);
+              t1_t3Max += baseMax * 2; t1_t3Valid = true;
             }
 
             // Table 2 (Final Report Card Calculations)
@@ -452,8 +452,8 @@ function AnnualMasterEngine() {
                         <td className="text-left pl-2 uppercase">TOTAL GENERAL</td>
                         <td>-</td><td>-</td><td className="bg-blue-950">-</td>
                         <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t1.valid ? `${m.t2.t1.earned.toFixed(1)} / ${m.t2.t1.max}` : "-"}</td>
-                        <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t2.earned > 0 ? `${m.t2.t2.earned.toFixed(1)} / ${m.t2.t2.max}` : "-"}</td>
-                        <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t3.earned > 0 ? `${m.t2.t3.earned.toFixed(1)} / ${m.t2.t3.max}` : "-"}</td>
+                        <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t2.valid ? `${m.t2.t2.earned.toFixed(1)} / ${m.t2.t2.max}` : "-"}</td>
+                        <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t3.valid ? `${m.t2.t3.earned.toFixed(1)} / ${m.t2.t3.max}` : "-"}</td>
                         <td className="bg-blue-950 font-serif">{m.t2.annual.max}</td>
                         <td className="text-white font-serif">{m.t2.annual.earned.toFixed(1)}</td>
                         <td className="text-white font-serif">{m.t2.annual.pct.toFixed(1)}%</td>

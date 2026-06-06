@@ -16,6 +16,9 @@ function AnnualMasterEngine() {
   const [allMarks, setAllMarks] = useState<any>({});
   const [loading, setLoading] = useState(true);
 
+  const parseNumFallback = (val: any) => (val === undefined || val === null || val === "-") ? 0 : Number(val);
+  const isValidMark = (val: any) => val !== undefined && val !== null && val !== "-";
+
   useEffect(() => {
     const fetchAnnualData = async () => {
       setLoading(true);
@@ -35,89 +38,130 @@ function AnnualMasterEngine() {
         }));
         setAllMarks(marksMatrix);
 
-        // Compute rankings for Table 1 (Tests/Interrogations Layout)
-        const t1Calculated = classFiltered.map((student) => {
+        // Define calculation metrics pipelines for terms
+        const computedMetrics = classFiltered.map((student) => {
           const studentMarks = marksMatrix[student.id] || {};
-          let earned = 0;
-          let maxPossible = 0;
-
-          subjectsList.forEach((sub) => {
-            if (activeClass === "P6" && sub === "French") return;
-            const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
-            const baseMax = isFrenchP1P5 ? 25 : 50;
-
-            ["term1", "term2", "term3"].forEach((tKey) => {
-              const mData = studentMarks[sub] || {};
-              const v1 = mData[`${tKey}_t1`];
-              const v2 = mData[`${tKey}_m1`];
-              const v3 = mData[`${tKey}_t2`];
-              const v4 = mData[`${tKey}_m2`];
-
-              if (v1 !== undefined && v1 !== "-") earned += Number(v1);
-              if (v2 !== undefined && v2 !== "-") earned += Number(v2);
-              if (v3 !== undefined && v3 !== "-") earned += Number(v3);
-              if (v4 !== undefined && v4 !== "-") earned += Number(v4);
-              maxPossible += (baseMax * 4);
-            });
-          });
-          return { ...student, earned, maxPossible, pct: maxPossible > 0 ? (earned / maxPossible) * 100 : 0 };
-        });
-
-        // Compute rankings for Table 2 (Comprehensive Matrix With Co-Curriculars)
-        const t2Calculated = classFiltered.map((student) => {
-          const studentMarks = marksMatrix[student.id] || {};
-          let earned = 0;
-          let maxPossible = 0;
-
-          subjectsList.forEach((sub) => {
-            if (activeClass === "P6" && sub === "French") return;
-            const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
-            const baseMax = isFrenchP1P5 ? 25 : 50;
-
-            ["term1", "term2", "term3"].forEach((tKey) => {
-              const mData = studentMarks[sub] || {};
-              const v1 = mData[`${tKey}_t1`];
-              const v2 = mData[`${tKey}_m1`];
-              const v3 = mData[`${tKey}_t2`];
-              const v4 = mData[`${tKey}_m2`];
-
-              if (v1 !== undefined && v1 !== "-") earned += Number(v1);
-              if (v2 !== undefined && v2 !== "-") earned += Number(v2);
-              if (v3 !== undefined && v3 !== "-") earned += Number(v3);
-              if (v4 !== undefined && v4 !== "-") earned += Number(v4);
-              maxPossible += (baseMax * 4);
-            });
-          });
-
-          coCurricularList.forEach((sub) => {
-            ["term1", "term2", "term3"].forEach((tKey) => {
-              const mData = studentMarks[sub] || {};
-              const v1 = mData[`${tKey}_t1`];
-              const v2 = mData[`${tKey}_m1`];
-              if (v1 !== undefined && v1 !== "-") earned += Number(v1);
-              if (v2 !== undefined && v2 !== "-") earned += Number(v2);
-              maxPossible += 10; 
-            });
-          });
-
-          return { ...student, earned, maxPossible, pct: maxPossible > 0 ? (earned / maxPossible) * 100 : 0 };
-        });
-
-        // Map objects to avoid breakdown errors on empty fields
-        const alphabeticalList = classFiltered.map(s => {
-          const r1 = [...t1Calculated].sort((a,b) => b.pct - a.pct);
-          const r2 = [...t2Calculated].sort((a,b) => b.pct - a.pct);
           
+          // --- TABLE 1 CALCULATIONS ---
+          let t1_t1Earned = 0, t1_t1Max = 0, t1_t1Valid = false;
+          let t1_t2Earned = 0, t1_t2Max = 0, t1_t2Valid = false;
+          let t1_t3Earned = 0, t1_t3Max = 0, t1_t3Valid = false;
+
+          // --- TABLE 2 CALCULATIONS ---
+          let t2_t1Earned = 0, t2_t1Max = 0, t2_t1Valid = false;
+          let t2_t2Earned = 0, t2_t2Max = 0, t2_t2Valid = false;
+          let t2_t3Earned = 0, t2_t3Max = 0, t2_t3Valid = false;
+
+          subjectsList.forEach((sub) => {
+            if (activeClass === "P6" && sub === "French") return;
+            const isFrenchP1P5 = sub === "French" && activeClass !== "P6";
+            const baseMax = isFrenchP1P5 ? 25 : 50;
+
+            const mData = studentMarks[sub] || {};
+            
+            // Term 1 Raw Fields
+            const t1v1 = mData.term1_t1; const t1v2 = mData.term1_m1;
+            const t1v3 = mData.term1_t2; const t1v4 = mData.term1_m2;
+            // Term 2 Raw Fields
+            const t2v1 = mData.term2_t1; const t2v2 = mData.term2_m1;
+            const t2v3 = mData.term2_t2; const t2v4 = mData.term2_m2;
+            // Term 3 Raw Fields
+            const t3v1 = mData.term3_t1; const t3v2 = mData.term3_m1;
+            const t3v3 = mData.term3_t2; const t3v4 = mData.term3_m2;
+
+            // Table 1: Mid 1 + Mid 2 accumulation per term
+            if (isValidMark(t1v1) || isValidMark(t1v2)) {
+              t1_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2);
+              t1_t1Max += baseMax * 2; t1_t1Valid = true;
+            }
+            if (isValidMark(t2v1) || isValidMark(t2v2)) {
+              t1_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2);
+              t1_t2Max += baseMax * 2; t1_t2Valid = true;
+            }
+            if (isValidMark(t3v1) || isValidMark(t3v2)) {
+              t1_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2);
+              t1_t3Max += baseMax * 2; t1_t3Valid = true;
+            }
+
+            // Table 2: Complete subjects distribution (Mid + Exam)
+            if (isValidMark(t1v1) || isValidMark(t1v2) || isValidMark(t1v3) || isValidMark(t1v4)) {
+              t2_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2) + parseNumFallback(t1v3) + parseNumFallback(t1v4);
+              t2_t1Max += baseMax * 4; t2_t1Valid = true;
+            }
+            if (isValidMark(t2v1) || isValidMark(t2v2) || isValidMark(t2v3) || isValidMark(t2v4)) {
+              t2_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2) + parseNumFallback(t2v3) + parseNumFallback(t2v4);
+              t2_t2Max += baseMax * 4; t2_t2Valid = true;
+            }
+            if (isValidMark(t3v1) || isValidMark(t3v2) || isValidMark(t3v3) || isValidMark(t3v4)) {
+              t2_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2) + parseNumFallback(t3v3) + parseNumFallback(t3v4);
+              t2_t3Max += baseMax * 4; t2_t3Valid = true;
+            }
+          });
+
+          // Table 2: Add Co-curricular contributions to Table 2 Term totals
+          coCurricularList.forEach((sub) => {
+            const mData = studentMarks[sub] || {};
+            const t1v1 = mData.term1_t1; const t1v2 = mData.term1_m1;
+            const t2v1 = mData.term2_t1; const t2v2 = mData.term2_m1;
+            const t3v1 = mData.term3_t1; const t3v2 = mData.term3_m1;
+
+            if (isValidMark(t1v1) || isValidMark(t1v2)) {
+              t2_t1Earned += parseNumFallback(t1v1) + parseNumFallback(t1v2);
+              t2_t1Max += 10; t2_t1Valid = true;
+            }
+            if (isValidMark(t2v1) || isValidMark(t2v2)) {
+              t2_t2Earned += parseNumFallback(t2v1) + parseNumFallback(t2v2);
+              t2_t2Max += 10; t2_t2Valid = true;
+            }
+            if (isValidMark(t3v1) || isValidMark(t3v2)) {
+              t2_t3Earned += parseNumFallback(t3v1) + parseNumFallback(t3v2);
+              t2_t3Max += 10; t2_t3Valid = true;
+            }
+          });
+
+          // Complete Annual calculations
+          const t1_annMax = t1_t1Max + t1_t2Max + t1_t3Max;
+          const t1_annEarned = t1_t1Earned + t1_t2Earned + t1_t3Earned;
+          const t2_annMax = t2_t1Max + t2_t2Max + t2_t3Max;
+          const t2_annEarned = t2_t1Earned + t2_t2Earned + t2_t3Earned;
+
+          return {
+            id: student.id,
+            t1: {
+              t1: { earned: t1_t1Earned, max: t1_t1Max, pct: t1_t1Max > 0 ? (t1_t1Earned / t1_t1Max) * 100 : 0, valid: t1_t1Valid },
+              t2: { earned: t1_t2Earned, max: t1_t2Max, pct: t1_t2Max > 0 ? (t1_t2Earned / t1_t2Max) * 100 : 0, valid: t1_t2Valid },
+              t3: { earned: t1_t3Earned, max: t1_t3Max, pct: t1_t3Max > 0 ? (t1_t3Earned / t1_t3Max) * 100 : 0, valid: t1_t3Valid },
+              annual: { earned: t1_annEarned, max: t1_annMax, pct: t1_annMax > 0 ? (t1_annEarned / t1_annMax) * 100 : 0 }
+            },
+            t2: {
+              t1: { earned: t2_t1Earned, max: t2_t1Max, pct: t2_t1Max > 0 ? (t2_t1Earned / t2_t1Max) * 100 : 0, valid: t2_t1Valid },
+              t2: { earned: t2_t2Earned, max: t2_t2Max, pct: t2_t2Max > 0 ? (t2_t2Earned / t2_t2Max) * 100 : 0, valid: t2_t2Valid },
+              t3: { earned: t2_t3Earned, max: t2_t3Max, pct: t2_t3Max > 0 ? (t2_t3Earned / t2_t3Max) * 100 : 0, valid: t2_t3Valid },
+              annual: { earned: t2_annEarned, max: t2_annMax, pct: t2_annMax > 0 ? (t2_annEarned / t2_annMax) * 100 : 0 }
+            }
+          };
+        });
+
+        // Compute Multi-Term Ranking Indexes
+        const alphabetSort = classFiltered.map(s => {
+          const metrics = computedMetrics.find(m => m.id === s.id)!;
+
+          const getRank = (tableKey: "t1" | "t2", termKey: "t1" | "t2" | "t3" | "annual") => {
+            const list = [...computedMetrics].sort((a, b) => b[tableKey][termKey].pct - a[tableKey][termKey].pct);
+            return list.findIndex(x => x.id === s.id) + 1;
+          };
+
           return {
             ...s,
-            t1Rank: r1.findIndex(x => x.id === s.id) + 1,
-            t2Rank: r2.findIndex(x => x.id === s.id) + 1,
-            t1Totals: t1Calculated.find(x => x.id === s.id) || { earned: 0, maxPossible: 0, pct: 0 },
-            t2Totals: t2Calculated.find(x => x.id === s.id) || { earned: 0, maxPossible: 0, pct: 0 }
+            metrics,
+            ranks: {
+              t1: { t1: getRank("t1", "t1"), t2: getRank("t1", "t2"), t3: getRank("t1", "t3"), annual: getRank("t1", "annual") },
+              t2: { t1: getRank("t2", "t1"), t2: getRank("t2", "t2"), t3: getRank("t2", "t3"), annual: getRank("t2", "annual") }
+            }
           };
         }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
-        setStudents(alphabeticalList);
+        setStudents(alphabetSort);
       } catch (err) {
         console.error("Critical System Data Build Interrupted:", err);
       }
@@ -127,9 +171,7 @@ function AnnualMasterEngine() {
     fetchAnnualData();
   }, [activeClass]);
 
-  const parseNumFallback = (val: any) => (val === undefined || val === null || val === "-") ? 0 : Number(val);
-
-  if (loading) return <div className="p-12 text-center font-black tracking-widest text-blue-900 text-xs uppercase">Assembling System Annual Matrix...</div>;
+  if (loading) return <div className="p-12 text-center font-black tracking-widest text-blue-900 text-xs uppercase">Assembling Comprehensive Annual Matrix...</div>;
 
   return (
     <div className="p-4 bg-gray-100 min-h-screen text-[11px] font-black font-sans space-y-12">
@@ -144,7 +186,7 @@ function AnnualMasterEngine() {
 
       <div className="no-print bg-white p-4 border-2 border-black rounded-xl max-w-md mx-auto text-center shadow-sm">
         <h2 className="text-xs font-black text-blue-900 mb-1 uppercase">Annual Dual-Table Dashboard</h2>
-        <p className="text-gray-400 text-[10px] mb-3">Both structures rendered completely together.</p>
+        <p className="text-gray-400 text-[10px] mb-3">Term totals, percentages, and metrics completely populated.</p>
         <button onClick={() => window.print()} className="bg-blue-900 text-white font-black px-4 py-2 rounded-lg text-[10px] uppercase tracking-wider">
           Print Whole Class Register 🖨️
         </button>
@@ -155,6 +197,7 @@ function AnnualMasterEngine() {
       ) : (
         students.map((student) => {
           const studentMarks = allMarks[student.id] || {};
+          const m = student.metrics;
 
           return (
             <div key={student.id} className="bg-white p-6 border-4 border-black max-w-5xl mx-auto space-y-12 page-break shadow-sm">
@@ -236,31 +279,37 @@ function AnnualMasterEngine() {
                         </tr>
                       );
                     })}
+                    
+                    {/* TABLE 1 TOTAL GENERAL ROW */}
                     <tr className="bg-blue-50/70 font-black border-t-2 border-black text-blue-950">
                       <td className="text-left pl-2 uppercase">TOTAL GENERAL</td>
                       <td colSpan={3} className="bg-gray-100 text-center">-</td>
-                      <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-center">-</td>
-                      <td className="bg-gray-100 font-serif">{student.t1Totals?.maxPossible}</td>
-                      <td className="text-blue-900 font-serif text-[12px]">{student.t1Totals?.earned}</td>
-                      <td className="text-green-800 font-serif text-[12px]">{student.t1Totals?.pct.toFixed(1)}%</td>
+                      <td colSpan={3} className="font-serif text-center">{m.t1.t1.valid ? `${m.t1.t1.earned} / ${m.t1.t1.max}` : "-"}</td>
+                      <td colSpan={3} className="font-serif text-center">{m.t1.t2.valid ? `${m.t1.t2.earned} / ${m.t1.t2.max}` : "-"}</td>
+                      <td colSpan={3} className="font-serif text-center">{m.t1.t3.valid ? `${m.t1.t3.earned} / ${m.t1.t3.max}` : "-"}</td>
+                      <td className="bg-gray-100 font-serif">{m.t1.annual.max}</td>
+                      <td className="text-blue-900 font-serif text-[12px]">{m.t1.annual.earned}</td>
+                      <td className="text-green-800 font-serif text-[12px]">{m.t1.annual.pct.toFixed(1)}%</td>
                     </tr>
+
+                    {/* TABLE 1 PERCENTAGE ROW */}
                     <tr className="bg-gray-50 font-black">
                       <td className="text-left pl-2 uppercase">POURCENTAGE</td>
                       <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-green-800 font-serif text-center text-[12px]">{student.t1Totals?.pct.toFixed(1)}%</td>
+                      <td colSpan={3} className="text-green-800 font-serif text-center">{m.t1.t1.valid ? `${m.t1.t1.pct.toFixed(1)}%` : "..."}</td>
+                      <td colSpan={3} className="text-green-800 font-serif text-center">{m.t1.t2.valid ? `${m.t1.t2.pct.toFixed(1)}%` : "..."}</td>
+                      <td colSpan={3} className="text-green-800 font-serif text-center">{m.t1.t3.valid ? `${m.t1.t3.pct.toFixed(1)}%` : "..."}</td>
+                      <td colSpan={3} className="text-green-800 font-serif text-center text-[12px]">{m.t1.annual.pct.toFixed(1)}%</td>
                     </tr>
+
+                    {/* TABLE 1 RANK ROW */}
                     <tr className="font-black border-b-2 border-black">
                       <td className="text-left pl-2 uppercase">PLACE / RANK</td>
                       <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-center text-gray-400">SUR {students.length}</td>
-                      <td colSpan={3} className="text-center text-gray-400">SUR {students.length}</td>
-                      <td colSpan={3} className="text-center text-gray-400">SUR {students.length}</td>
-                      <td colSpan={3} className="bg-green-50 text-emerald-900 font-serif text-center text-[12px] uppercase">{student.t1Rank} SUR {students.length}</td>
+                      <td colSpan={3} className="text-center text-amber-900 font-serif">{m.t1.t1.valid ? `${student.ranks.t1.t1} SUR ${students.length}` : "..."}</td>
+                      <td colSpan={3} className="text-center text-amber-900 font-serif">{m.t1.t2.valid ? `${student.ranks.t1.t2} SUR ${students.length}` : "..."}</td>
+                      <td colSpan={3} className="text-center text-amber-900 font-serif">{m.t1.t3.valid ? `${student.ranks.t1.t3} SUR ${students.length}` : "..."}</td>
+                      <td colSpan={3} className="bg-green-50 text-emerald-900 font-serif text-center text-[12px] uppercase">{student.ranks.t1.annual} SUR {students.length}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -348,7 +397,7 @@ function AnnualMasterEngine() {
                       const t1_tot = t1_mid !== "-" || t1_ex !== "-" ? parseNumFallback(t1_mid) + parseNumFallback(t1_ex) : "-";
 
                       const t2_mid = mData.term2_t1 ?? "-"; const t2_ex = mData.term2_m1 ?? "-";
-                      const t2_tot = mData.term2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
+                      const t2_tot = t2_mid !== "-" || t2_ex !== "-" ? parseNumFallback(t2_mid) + parseNumFallback(t2_ex) : "-";
 
                       const t3_mid = mData.term3_t1 ?? "-"; const t3_ex = mData.term3_m1 ?? "-";
                       const t3_tot = t3_mid !== "-" || t3_ex !== "-" ? parseNumFallback(t3_mid) + parseNumFallback(t3_ex) : "-";
@@ -372,33 +421,38 @@ function AnnualMasterEngine() {
                       );
                     })}
 
-                    <tr className="bg-blue-900 text-white font-black text-[12px] border-t-4 border-black">
+                    {/* TABLE 2 TOTAL GENERAL ROW */}
+                    <tr className="bg-blue-900 text-white font-black text-[11px] border-t-4 border-black">
                       <td className="text-left pl-2 uppercase">TOTAL GENERAL</td>
-                      <td>285</td>
-                      <td>285</td>
-                      <td className="bg-blue-950">570</td>
-                      <td colSpan={3} className="bg-blue-950/40 text-center">-</td>
-                      <td colSpan={3} className="bg-blue-950/40 text-center">-</td>
-                      <td colSpan={3} className="bg-blue-950/40 text-center">-</td>
-                      <td className="bg-blue-950 font-serif">{student.t2Totals?.maxPossible}</td>
-                      <td className="text-white font-serif">{student.t2Totals?.earned}</td>
-                      <td className="text-white font-serif">{student.t2Totals?.pct.toFixed(1)}%</td>
+                      <td>-</td>
+                      <td>-</td>
+                      <td className="bg-blue-950">-</td>
+                      <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t1.valid ? `${m.t2.t1.earned} / ${m.t2.t1.max}` : "-"}</td>
+                      <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t2.valid ? `${m.t2.t2.earned} / ${m.t2.t2.max}` : "-"}</td>
+                      <td colSpan={3} className="bg-blue-950/40 text-center font-serif">{m.t2.t3.valid ? `${m.t2.t3.earned} / ${m.t2.t3.max}` : "-"}</td>
+                      <td className="bg-blue-950 font-serif">{m.t2.annual.max}</td>
+                      <td className="text-white font-serif">{m.t2.annual.earned}</td>
+                      <td className="text-white font-serif">{m.t2.annual.pct.toFixed(1)}%</td>
                     </tr>
+
+                    {/* TABLE 2 PERCENTAGE ROW */}
                     <tr className="font-black bg-gray-50">
                       <td className="text-left pl-2 uppercase">POURCENTAGE</td>
                       <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-center">....................%</td>
-                      <td colSpan={3} className="text-center">....................%</td>
-                      <td colSpan={3} className="text-center">....................%</td>
-                      <td colSpan={3} className="text-blue-950 font-serif text-center text-[12px]">{student.t2Totals?.pct.toFixed(1)}%</td>
+                      <td colSpan={3} className="text-center font-serif text-blue-900">{m.t2.t1.valid ? `${m.t2.t1.pct.toFixed(1)}%` : "....................%"}</td>
+                      <td colSpan={3} className="text-center font-serif text-blue-900">{m.t2.t2.valid ? `${m.t2.t2.pct.toFixed(1)}%` : "....................%"}</td>
+                      <td colSpan={3} className="text-center font-serif text-blue-900">{m.t2.t3.valid ? `${m.t2.t3.pct.toFixed(1)}%` : "....................%"}</td>
+                      <td colSpan={3} className="text-blue-950 font-serif text-center text-[12px]">{m.t2.annual.pct.toFixed(1)}%</td>
                     </tr>
+
+                    {/* TABLE 2 RANK ROW */}
                     <tr className="font-black bg-gray-50 border-b-4 border-black">
                       <td className="text-left pl-2 uppercase">PLACE / RANK</td>
                       <td colSpan={3} className="text-center">-</td>
-                      <td colSpan={3} className="text-center text-gray-400">....................Sur {students.length}</td>
-                      <td colSpan={3} className="text-center text-gray-400">....................Sur {students.length}</td>
-                      <td colSpan={3} className="text-center text-gray-400">....................Sur {students.length}</td>
-                      <td colSpan={3} className="bg-green-100 text-green-900 font-serif text-center text-[12px] uppercase">{student.t2Rank} SUR {students.length}</td>
+                      <td colSpan={3} className="text-center text-gray-900 font-serif">{m.t2.t1.valid ? `${student.ranks.t2.t1} SUR ${students.length}` : "....................Sur"}</td>
+                      <td colSpan={3} className="text-center text-gray-900 font-serif">{m.t2.t2.valid ? `${student.ranks.t2.t2} SUR ${students.length}` : "....................Sur"}</td>
+                      <td colSpan={3} className="text-center text-gray-900 font-serif">{m.t2.t3.valid ? `${student.ranks.t2.t3} SUR ${students.length}` : "....................Sur"}</td>
+                      <td colSpan={3} className="bg-green-100 text-green-900 font-serif text-center text-[12px] uppercase">{student.ranks.t2.annual} SUR {students.length}</td>
                     </tr>
                   </tbody>
                 </table>

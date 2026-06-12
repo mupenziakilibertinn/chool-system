@@ -162,7 +162,7 @@ export default function TeacherPage() {
                 📊  MID-TERMS ({config.classTeacherOf})
               </button>
               
-              {/* ANNUAL REPORT CARDS NAVIGATION ENTRY */}
+              {/* ANNUAL SHEETS TRIGGER BUTTON */}
               <button
                 onClick={() => router.push(`/reports/annual?class=${config.classTeacherOf.toUpperCase()}`)}
                 className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all"

@@ -1,359 +1,259 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation"; 
-import { db, auth } from "../../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, query, where, doc, setDoc, getDoc } from "firebase/firestore";
 
-export default function TeacherPage() {
-  const router = useRouter(); 
-  const [user, setUser] = useState<any>(null);
-  const [config, setConfig] = useState<any>({ classes: [], subjects: [], classTeacherOf: "", name: "" });
-  const [selectedClass, setSelectedClass] = useState("");
-  const [selectedSubject, setSelectedSubject] = useState("");
-  const [selectedTerm, setSelectedTerm] = useState("ACADEMIC TERM 1");
-  const [students, setStudents] = useState<any[]>([]);
-  const [outOf, setOutOf] = useState(50);
+import React, { useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { db } from "@/lib/firebase";
+import {
+  doc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from "firebase/firestore";
+import Link from "next/link";
+import LoadingSpinner from "@/components/LoadingSpinner";
 
-  const [entryMode, setEntryMode] = useState<"academic" | "cocurricular">("academic");
-  const [coCurricularMarks, setCoCurricularMarks] = useState<Record<string, any>>({});
+interface Student {
+  id: string;
+  names: string;
+}
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (u?.email) {
-        setUser(u);
-        const snap = await getDoc(doc(db, "teachers", u.email.toLowerCase()));
-        if (snap.exists()) {
-          const d = snap.data();
-          const combinedClasses = [...(d.classes || [])];
-          if (d.classTeacherOf && !combinedClasses.includes(d.classTeacherOf)) {
-            combinedClasses.push(d.classTeacherOf);
-          }
-          setConfig({
-            ...d,
-            classes: combinedClasses,
-            classTeacherOf: d.classTeacherOf || ""
-          });
-          setSelectedClass(d.classes[0] || d.classTeacherOf || "");
-          setSelectedSubject(d.subjects?.[0] || "");
-        }
-      }
-    });
-    return () => unsub();
-  }, []);
+interface AssessmentConfig {
+  academicYear: string;
+  term: string;
+  midTermWeight: number;
+  examWeight: number;
+  classTeacherOf?: string;
+  streamTeacherOf?: string;
+}
+
+export default function TeacherDashboard() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [teacherData, setTeacherData] = useState<any>(null);
+  const [config, setConfig] = useState<AssessmentConfig | null>(null);
+  const [classes, setClasses] = useState<string[]>([]);
+  const [selectedClass, setSelectedClass] = useState<string>("");
+  const [students, setStudents] = useState<Student[]>([]);
 
   useEffect(() => {
-    if (entryMode === "cocurricular" && config.classTeacherOf) {
-      setSelectedClass(config.classTeacherOf);
-    } else if (entryMode === "academic" && config.classes.length > 0) {
-      setSelectedClass(config.classes[0]);
-    }
-  }, [entryMode, config.classTeacherOf, config.classes]);
-
-  useEffect(() => {
-    if (!selectedClass) return;
-    if (entryMode === "academic" && !selectedSubject) return;
-    const load = async () => {
+    async function fetchData() {
+      if (!user?.uid) return;
       try {
-        const snap = await getDocs(query(collection(db, "students"), where("class", "==", selectedClass)));
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
-        setStudents(list);
-        
-        if (entryMode === "academic") {
-          for (const s of list) {
-            const mSnap = await getDoc(doc(db, "students", s.id, "marks", selectedSubject));
-            if (mSnap.exists()) {
-              const m = mSnap.data();
-              ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
-                const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
-                if (el) el.value = m[f] !== undefined ? m[f] : "";
-              });
-            } else {
-              ["t1", "m1", "t2", "m2", "exam"].forEach(f => {
-                const el = document.getElementById(`${f}-${s.id}`) as HTMLInputElement;
-                if (el) el.value = "";
-              });
-            }
+        // 1. Fetch Teacher Document
+        const teacherDoc = await getDoc(doc(db, "teachers", user.uid));
+        if (teacherDoc.exists()) {
+          const tData = teacherDoc.data();
+          setTeacherData(tData);
+          if (tData.classes && tData.classes.length > 0) {
+            setClasses(tData.classes);
+            setSelectedClass(tData.classes[0]);
           }
-        } else {
-          const loadedCoCurricular: Record<string, any> = {};
-          for (const s of list) {
-            loadedCoCurricular[s.id] = {
-              sport_p1: "", sport_p2: "", sport_total: 0,
-              art_p1: "", art_p2: "", art_total: 0
-            };
-            const sportSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "sport"));
-            if (sportSnap.exists()) {
-              const data = sportSnap.data();
-              loadedCoCurricular[s.id].sport_p1 = data.p1 !== undefined ? data.p1 : "";
-              loadedCoCurricular[s.id].sport_p2 = data.p2 !== undefined ? data.p2 : "";
-              loadedCoCurricular[s.id].sport_total = Number(data.p1 || 0) + Number(data.p2 || 0);
-            }
-            const artSnap = await getDoc(doc(db, "students", s.id, "co_curricular", "creative_art"));
-            if (artSnap.exists()) {
-              const data = artSnap.data();
-              loadedCoCurricular[s.id].art_p1 = data.p1 !== undefined ? data.p1 : "";
-              loadedCoCurricular[s.id].art_p2 = data.p2 !== undefined ? data.p2 : "";
-              loadedCoCurricular[s.id].art_total = Number(data.p1 || 0) + Number(data.p2 || 0);
-            }
-          }
-          setCoCurricularMarks(loadedCoCurricular);
         }
-      } catch (err) {
-        console.error(err);
+
+        // 2. Fetch Active Assessment Configuration
+        const configDoc = await getDoc(doc(db, "settings", "assessment"));
+        if (configDoc.exists()) {
+          setConfig(configDoc.data() as AssessmentConfig);
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setLoading(false);
       }
-    };
-    load();
-  }, [selectedClass, selectedSubject, entryMode]);
-
-  const saveAcademic = async (sid: string, field: string, val: string) => {
-    if (!val) return;
-    const target = selectedClass === "P6" ? 100 : 50;
-    const final = Math.round((Number(val) / outOf) * target);
-    await setDoc(doc(db, "students", sid, "marks", selectedSubject), { [field]: final }, { merge: true });
-  };
-
-  const saveCoCurricularField = async (studentId: string, activityType: "sport" | "creative_art", fieldPart: "p1" | "p2", rawValue: string) => {
-    const numVal = rawValue === "" ? "" : Number(rawValue);
-    if (rawValue !== "" && (Number(rawValue) > 5 || Number(rawValue) < 0)) {
-      alert("⚠️ Invalid Input! Marks must be between 0 and 5.");
-      return;
     }
-    setCoCurricularMarks(prev => {
-      const currentStudentData = prev[studentId] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
-      const updated = { ...currentStudentData };
-      if (activityType === "sport") {
-        if (fieldPart === "p1") updated.sport_p1 = rawValue;
-        if (fieldPart === "p2") updated.sport_p2 = rawValue;
-        updated.sport_total = Number(updated.sport_p1 || 0) + Number(updated.sport_p2 || 0);
-      } else {
-        if (fieldPart === "p1") updated.art_p1 = rawValue;
-        if (fieldPart === "p2") updated.art_p2 = rawValue;
-        updated.art_total = Number(updated.art_p1 || 0) + Number(updated.art_p2 || 0);
-      }
-      return { ...prev, [studentId]: updated };
-    });
-    const dbPayload = fieldPart === "p1" ? { p1: numVal } : { p2: numVal };
-    await setDoc(doc(db, "students", studentId, "co_curricular", activityType), dbPayload, { merge: true });
-  };
+    fetchData();
+  }, [user?.uid]);
 
-  if (!user) return <div className="p-10 font-black uppercase text-xs tracking-widest text-center text-blue-900">Checking credentials...</div>;
+  useEffect(() => {
+    async function fetchStudents() {
+      if (!selectedClass) {
+        setStudents([]);
+        return;
+      }
+      try {
+        const q = query(
+          collection(db, "students"),
+          where("classAndStream", "==", selectedClass),
+          where("status", "==", "ACTIVE")
+        );
+        const querySnapshot = await getDocs(q);
+        const list: Student[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          list.push({ id: doc.id, names: data.names });
+        });
+        // Sort alphabetically by student names
+        list.sort((a, b) => a.names.localeCompare(b.names));
+        setStudents(list);
+      } catch (error) {
+        console.error("Error fetching students:", error);
+      }
+    }
+    fetchStudents();
+  }, [selectedClass]);
+
+  if (loading) return <LoadingSpinner />;
+
+  // Validation Check: Is this teacher the official class teacher for the selected stream?
+  const isClassTeacher = config?.classTeacherOf === selectedClass;
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-xs pb-12">
-      <div className="bg-[#11224D] text-white px-8 py-4 flex justify-between items-center shadow-md">
+    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fadeIn">
+      {/* Top Banner Header */}
+      <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-6 rounded-2xl shadow-md flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <div className="text-[10px] uppercase font-black text-blue-400 tracking-wider">ACTIVE INSTRUCTOR</div>
-          <div className="text-lg font-black tracking-wide uppercase">{config.name || "TEACHER PANEL"}</div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Teacher Dashboard
+          </h1>
+          <p className="text-blue-100 text-sm mt-1">
+            Welcome back, {teacherData?.names || "Teacher"}
+          </p>
         </div>
+        <div className="bg-white/10 backdrop-blur-sm px-4 py-2 rounded-xl text-sm border border-white/10">
+          <span className="font-semibold text-blue-200">Active Term:</span>{" "}
+          {config?.academicYear} — {config?.term}
+        </div>
+      </div>
+
+      {/* Main Configuration Controls Panel */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setEntryMode(entryMode === "academic" ? "cocurricular" : "academic")}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-4 py-2.5 rounded-md shadow border border-emerald-500 transition-all"
+          <label className="text-sm font-semibold text-slate-700 whitespace-nowrap">
+            Select Class & Stream:
+          </label>
+          <select
+            value={selectedClass}
+            onChange={(e) => setSelectedClass(e.target.value)}
+            className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer"
           >
-            {entryMode === "academic" ? "🏆 Go to Co-Curricular" : "📖 Go to Academic Marks"}
-          </button>
-          
-          {config.classTeacherOf && (
-            <div className="flex items-center bg-slate-800/80 p-1 rounded-lg border border-slate-700 gap-1">
-              <button 
-                onClick={() => router.push(`/reports/midterm?class=${config.classTeacherOf.toUpperCase()}&term=${selectedTerm.replace(/\s+/g, "")}`)}
-                className="bg-[#3A6073] hover:bg-[#2B4C5E] text-white font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all"
+            {classes.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Action Buttons Container */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Marks Entry Actions */}
+          <Link
+            href={`/marks-entry/midterm?classStream=${encodeURIComponent(selectedClass)}`}
+            className="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all"
+          >
+            ENTER MID MARKS
+          </Link>
+          <Link
+            href={`/marks-entry/examination?classStream=${encodeURIComponent(selectedClass)}`}
+            className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all"
+          >
+            ENTER EXAM MARKS
+          </Link>
+
+          {/* Co-Curricular & Behaviour Entries */}
+          <Link
+            href={`/marks-entry/co-curricular?classStream=${encodeURIComponent(selectedClass)}`}
+            className="bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all"
+          >
+            BEHAVIOUR & CO-CURRICULAR
+          </Link>
+
+          {/* Class Teacher Restricted Actions */}
+          {isClassTeacher && (
+            <>
+              <Link
+                href={`/reports/midterm?classStream=${encodeURIComponent(selectedClass)}`}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all"
               >
-                📊 MID-TERMS ({config.classTeacherOf})
-              </button>
-              <button 
-                onClick={() => router.push(`/reports/annual?class=${config.classTeacherOf.toUpperCase()}`)}
-                className="bg-[#D4A373] hover:bg-[#c59262] text-slate-900 font-black uppercase text-[10px] tracking-wider px-3 py-2 rounded-md transition-all"
+                VIEW MID REPORT CARDS
+              </Link>
+              
+              {/* NEW ANNUAL MASTER PAGE BUTTON */}
+              <Link
+                href={`/reports/annual?class=${encodeURIComponent(selectedClass)}`}
+                className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all"
               >
-                🖨️ ANNUAL SHEETS ({config.classTeacherOf})
-              </button>
-            </div>
+                VIEW ANNUAL MASTER
+              </Link>
+            </>
           )}
         </div>
       </div>
-      
-      <div className="max-w-[1400px] mx-auto px-6 mt-6">
-        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm mb-6 flex gap-4">
-          <div className="flex-1">
-            <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">TARGET MATRIX STREAM</label>
-            {entryMode === "academic" ? (
-              <select
-                value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
-                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none"
-              >
-                {config.classes.map((c: string) => (
-                  <option key={c} value={c}>CLASS STREAM {c}</option>
-                ))}
-              </select>
-            ) : (
-              <div className="w-full bg-slate-100 text-slate-800 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-dashed border-slate-400">
-                CO-CURRICULAR FIELD MATRIX — STREAM {config.classTeacherOf} ONLY
-              </div>
-            )}
+
+      {/* Class Roster Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left/Middle Column: Student Roster Table */}
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+            <h2 className="text-md font-bold text-slate-800">Class Roster</h2>
+            <span className="text-xs font-semibold text-slate-500 bg-slate-200/60 px-2.5 py-1 rounded-full">
+              {students.length} Students Registered
+            </span>
           </div>
 
-          {entryMode === "academic" && (
-            <div className="flex-1">
-              <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">ASSIGNED COURSE SUBJECT</label>
-              <select
-                value={selectedSubject}
-                onChange={(e) => setSelectedSubject(e.target.value)}
-                className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none"
-              >
-                {(config.subjects || []).map((s: string) => (
-                  <option key={s} value={s}>{s.toUpperCase()}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="flex-1">
-            <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">ASSESSMENT TARGET TERM</label>
-            <select
-              value={selectedTerm}
-              onChange={(e) => setSelectedTerm(e.target.value)}
-              className="w-full bg-white text-slate-900 font-black uppercase text-sm px-4 py-3 rounded-xl border-2 border-slate-900 outline-none"
-            >
-              <option value="ACADEMIC TERM 1">ACADEMIC TERM 1</option>
-              <option value="ACADEMIC TERM 2">ACADEMIC TERM 2</option>
-              <option value="ACADEMIC TERM 3">ACADEMIC TERM 3</option>
-            </select>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-semibold text-xs border-b border-slate-100 uppercase tracking-wider">
+                  <th className="p-4 w-12 text-center">No.</th>
+                  <th className="p-4">Student Name</th>
+                  <th className="p-4 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {students.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="p-8 text-center text-slate-400 font-medium">
+                      No active students found in this class stream.
+                    </td>
+                  </tr>
+                ) : (
+                  students.map((student, index) => (
+                    <tr key={student.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="p-4 text-center font-semibold text-slate-400">
+                        {index + 1}
+                      </td>
+                      <td className="p-4 font-semibold text-slate-800">
+                        {student.names}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <Link
+                            href={`/students/${student.id}`}
+                            className="text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            Profile
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-900 p-6 shadow-sm overflow-hidden">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 className="text-[#11224D] text-md font-black uppercase tracking-wide">
-                {entryMode === "academic" ? "MARKS GRADING DASHBOARD" : "CO-CURRICULAR SKILLS EVALUATION"}
-              </h2>
-            </div>
-            {entryMode === "academic" && (
-              <div className="flex items-center gap-3">
-                <span className="font-black text-[10px] uppercase text-slate-500">PAPER MAX:</span>
-                <input
-                  type="number"
-                  value={outOf}
-                  onChange={(e) => setOutOf(Number(e.target.value))}
-                  className="w-16 text-slate-900 font-black p-2 text-center rounded-xl border-2 border-slate-900 text-xs"
-                />
+        {/* Right Column: Mini Guidelines Context Card */}
+        <div className="space-y-6">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+            <h3 className="font-bold text-slate-800 text-sm tracking-wide uppercase text-slate-400">
+              Teacher Assignment Info
+            </h3>
+            <div className="space-y-3 text-xs">
+              <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-slate-500 font-medium">Assigned Classes</span>
+                <span className="font-bold text-slate-800">{classes.join(", ") || "None"}</span>
               </div>
-            )}
-          </div>
-
-          <div className="border-2 border-slate-900 rounded-xl overflow-hidden">
-            {entryMode === "academic" ? (
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 uppercase text-[10px] font-black text-slate-800 border-b-2 border-slate-900">
-                  <tr>
-                    <th className="p-4 border-r border-slate-300 w-2/5">STUDENT REGISTER ENTRY</th>
-                    {["TEST 1 (/50)", "MID 1 (/50)", "TEST 2 (/50)", "MID 2 (/50)", "FINAL EXAM (/50)"].map(h => (
-                      <th key={h} className="border-r border-slate-300 p-2 text-center">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y-2 divide-slate-200">
-                  {students.map((s, idx) => (
-                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-black uppercase border-r border-slate-300 text-[#11224D]">{s.name}</td>
-                      {["t1", "m1", "t2", "m2", "exam"].map(f => (
-                        <td key={f} className="p-2 border-r border-slate-300">
-                          <input
-                            id={`${f}-${s.id}`}
-                            type="number"
-                            onBlur={(e) => saveAcademic(s.id, f, e.target.value)}
-                            onKeyDown={(e) => { 
-                              if (e.key === "Enter") {
-                                const nextStudent = students[idx + 1];
-                                if (nextStudent) document.getElementById(`${f}-${nextStudent.id}`)?.focus();
-                              }
-                            }}
-                            className="w-full max-w-[100px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
-                            placeholder="0"
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-emerald-50/60 uppercase text-[10px] font-black text-slate-800 border-b-2 border-slate-900">
-                  <tr>
-                    <th rowSpan={2} className="p-4 border-r border-slate-300 w-2/5 align-middle">STUDENT REGISTER ENTRY</th>
-                    <th colSpan={3} className="border-r border-slate-300 p-3 text-center bg-green-50 tracking-wider font-black text-green-950">SPORT ACTIVITIES</th>
-                    <th colSpan={3} className="p-3 text-center bg-teal-50 tracking-wider font-black text-teal-950">CREATIVE ARTS</th>
-                  </tr>
-                  <tr className="bg-slate-100 text-[9px] border-b-2 border-slate-900 text-slate-600">
-                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 1 (/5)</th>
-                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 2 (/5)</th>
-                    <th className="border-r border-slate-300 p-2 text-center bg-green-100/60 font-black text-green-900 w-[10%]">Total (/10)</th>
-                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 1 (/5)</th>
-                    <th className="border-r border-slate-300 p-2 text-center w-[10%]">Part 2 (/5)</th>
-                    <th className="p-2 text-center bg-teal-100/60 font-black text-teal-900 w-[10%]">Total (/10)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y-2 divide-slate-200">
-                  {students.map((s) => {
-                    const currentMarks = coCurricularMarks[s.id] || { sport_p1: "", sport_p2: "", sport_total: 0, art_p1: "", art_p2: "", art_total: 0 };
-                    return (
-                      <tr key={s.id} className="hover:bg-emerald-50/20 transition-colors">
-                        <td className="p-4 font-black uppercase border-r border-slate-300 text-slate-900">{s.name}</td>
-                        <td className="p-2 border-r border-slate-300">
-                          <input
-                            type="number"
-                            min={0} max={5}
-                            value={currentMarks.sport_p1}
-                            onChange={(e) => saveCoCurricularField(s.id, "sport", "p1", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
-                            placeholder="/5"
-                          />
-                        </td>
-                        <td className="p-2 border-r border-slate-300">
-                          <input
-                            type="number"
-                            min={0} max={5}
-                            value={currentMarks.sport_p2}
-                            onChange={(e) => saveCoCurricularField(s.id, "sport", "p2", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
-                            placeholder="/5"
-                          />
-                        </td>
-                        <td className="p-4 text-center font-black bg-green-50 text-green-700 text-md border-r border-slate-300">
-                          {currentMarks.sport_total}
-                        </td>
-                        <td className="p-2 border-r border-slate-300">
-                          <input
-                            type="number"
-                            min={0} max={5}
-                            value={currentMarks.art_p1}
-                            onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p1", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
-                            placeholder="/5"
-                          />
-                        </td>
-                        <td className="p-2 border-r border-slate-300">
-                          <input
-                            type="number"
-                            min={0} max={5}
-                            value={currentMarks.art_p2}
-                            onChange={(e) => saveCoCurricularField(s.id, "creative_art", "p2", e.target.value)}
-                            className="w-full max-w-[80px] mx-auto block p-2 text-center font-black rounded-xl border-2 border-slate-300 text-sm"
-                            placeholder="/5"
-                          />
-                        </td>
-                        <td className="p-4 text-center font-black bg-teal-50 text-teal-700 text-md">
-                          {currentMarks.art_total}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+              <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-slate-500 font-medium">Class Teacher Stream</span>
+                <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                  {config?.classTeacherOf || "None Assigned"}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -11,104 +11,125 @@ const timeSlots = [
   "08:00 - 08:40",
   "08:40 - 09:20",
   "09:20 - 10:00",
+  "10:00 - 10:20 (BREAK)",
   "10:20 - 11:00",
   "11:00 - 11:40",
   "11:40 - 12:20",
+  "12:20 - 14:00 (LUNCH)",
+  "14:00 - 14:40",
+  "14:40 - 15:20",
+  "15:20 - 16:00 (DEBATE/SPORTS)",
+];
+
+const availableRoles = [
+  "Master Administrator",
+  "Headmaster / Director",
+  "Class Master",
+  "Subject Teacher",
+  "Discipline Master",
 ];
 
 export default function UltimateAdminTerminal() {
-  // Authentication Guard States
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
   const [authError, setAuthError] = useState("");
 
-  // Teacher Accountability Tracking State
   const [assignedClassMaster, setAssignedClassMaster] = useState<string | null>(null);
   const [loggedInUserTitle, setLoggedInUserTitle] = useState("System Administrator");
 
-  // Data Pipeline Matrix States
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "timetable" | "printEngine">("overview");
 
-  // Creation Form Binder States
   const [studentForm, setStudentForm] = useState({ name: "", class: "P1" });
-  const [teacherForm, setTeacherForm] = useState({ name: "", email: "", password: "", classTeacherOf: "" });
+  const [teacherForm, setTeacherForm] = useState({ name: "", email: "", password: "", classTeacherOf: "", role: "Subject Teacher" });
   const [allocationForm, setAllocationForm] = useState({ teacherId: "", class: "P1", subject: "Mathematics" });
   const [formFeedback, setFormFeedback] = useState("");
 
-  // Timetable State
+  // Timetable State & Rule Engine
+  const [timetableSubTab, setTimetableSubTab] = useState<"class" | "teacher" | "master" | "rules">("class");
   const [selectedTimetableClass, setSelectedTimetableClass] = useState("P1");
-  const [timetableData, setTimetableData] = useState<Record<string, Record<string, string>>>({});
+  const [selectedTimetableTeacher, setSelectedTimetableTeacher] = useState("");
+  const [allClassTimetables, setAllClassTimetables] = useState<Record<string, Record<string, Record<string, string>>>>({});
   const [savingTimetable, setSavingTimetable] = useState(false);
 
-  // Inline Operational Modification (Editing) States
+  // Subject Frequency Rules (e.g., { "Mathematics": 5, "French": 2 })
+  const [subjectFrequencyRules, setSubjectFrequencyRules] = useState<Record<string, number>>({
+    Mathematics: 5,
+    Kinyarwanda: 5,
+    English: 5,
+    SET: 3,
+    SRE: 2,
+    French: 2,
+  });
+
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [editStudentName, setEditStudentName] = useState("");
   const [editStudentClass, setEditStudentClass] = useState("P1");
+
   const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
   const [editTeacherName, setEditTeacherName] = useState("");
-  const [editTeacherEmail, setEditTeacherEmail] = useState("");
   const [editTeacherPassword, setEditTeacherPassword] = useState("");
+  const [editTeacherRole, setEditTeacherRole] = useState("Subject Teacher");
   const [editTeacherClassMaster, setEditTeacherClassMaster] = useState("");
 
-  // Printing Selector Filters
   const [printFilterClass, setPrintFilterClass] = useState("P1");
 
   useEffect(() => {
     if (isAuthenticated) {
       loadSystemRecords();
+      fetchAllTimetables();
     }
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    if (isAuthenticated && activeTab === "timetable") {
-      fetchTimetable(selectedTimetableClass);
-    }
-  }, [selectedTimetableClass, activeTab, isAuthenticated]);
-
-  const fetchTimetable = async (className: string) => {
+  const fetchAllTimetables = async () => {
     try {
-      const docRef = doc(db, "timetables", className);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setTimetableData(docSnap.data().schedule || {});
-      } else {
-        setTimetableData({});
+      const timetablesMap: Record<string, Record<string, Record<string, string>>> = {};
+      for (const cls of availableClasses) {
+        const docRef = doc(db, "timetables", cls);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          timetablesMap[cls] = docSnap.data().schedule || {};
+        } else {
+          timetablesMap[cls] = {};
+        }
       }
+      setAllClassTimetables(timetablesMap);
     } catch (err) {
-      console.error("Error loading timetable:", err);
-      setFormFeedback("Failed to load timetable.");
+      console.error("Error fetching all timetables:", err);
     }
   };
 
-  const handleCellChange = (day: string, slot: string, subject: string) => {
-    setTimetableData((prev) => ({
+  const handleCellChange = (cls: string, day: string, slot: string, subject: string) => {
+    setAllClassTimetables((prev) => ({
       ...prev,
-      [day]: {
-        ...(prev[day] || {}),
-        [slot]: subject,
+      [cls]: {
+        ...(prev[cls] || {}),
+        [day]: {
+          ...(prev[cls]?.[day] || {}),
+          [slot]: subject,
+        },
       },
     }));
   };
 
-  const handleSaveTimetable = async () => {
+  const handleSaveClassTimetable = async (cls: string) => {
     setSavingTimetable(true);
     try {
-      await setDoc(doc(db, "timetables", selectedTimetableClass), {
-        class: selectedTimetableClass,
-        schedule: timetableData,
+      await setDoc(doc(db, "timetables", cls), {
+        class: cls,
+        schedule: allClassTimetables[cls] || {},
+        subjectRules: subjectFrequencyRules,
         updatedAt: new Date().toISOString(),
       });
-      setFormFeedback(`Timetable for ${selectedTimetableClass} saved successfully!`);
+      setFormFeedback(`Timetable for Class ${cls} successfully saved!`);
     } catch (err) {
-      setFormFeedback("Error saving timetable.");
+      setFormFeedback("Error saving timetable to database.");
     }
     setSavingTimetable(false);
   };
 
-  // DEEP PASSCODE NETWORK MATRIX SCANNER
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPassword = adminPassword.trim();
@@ -135,18 +156,10 @@ export default function UltimateAdminTerminal() {
       });
 
       if (matchingTeacher) {
-        let lockedClass = "P4";
-        if (matchingTeacher.classTeacherOf) {
-          lockedClass = String(matchingTeacher.classTeacherOf).trim();
-        } else if (matchingTeacher.classes && Array.isArray(matchingTeacher.classes) && matchingTeacher.classes.length > 0) {
-          lockedClass = String(matchingTeacher.classes[0]).trim();
-        } else if (matchingTeacher.id.toLowerCase().includes("didier")) {
-          lockedClass = "P4";
-        }
-
+        let lockedClass = matchingTeacher.classTeacherOf || "P4";
         setAssignedClassMaster(lockedClass);
         setPrintFilterClass(lockedClass);
-        setLoggedInUserTitle(`Tr. ${matchingTeacher.name || "INSTRUCTOR"} (${lockedClass} Master)`);
+        setLoggedInUserTitle(`Tr. ${matchingTeacher.name || "INSTRUCTOR"} (${matchingTeacher.role || "Teacher"})`);
         setIsAuthenticated(true);
         setAuthError("");
         setActiveTab("printEngine");
@@ -164,19 +177,21 @@ export default function UltimateAdminTerminal() {
       const sSnap = await getDocs(collection(db, "students"));
       setStudents(sSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
       const tSnap = await getDocs(collection(db, "teachers"));
-      setTeachers(tSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const teacherDocs = tSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setTeachers(teacherDocs);
+      if (teacherDocs.length > 0 && !selectedTimetableTeacher) {
+        setSelectedTimetableTeacher(teacherDocs[0].id);
+      }
     } catch (err) {
       console.error("Database pull failure:", err);
     }
     setLoading(false);
   };
 
-  // --- STUDENT CRUD ---
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentForm.name.trim()) return;
     try {
-      setFormFeedback("Enrolling student...");
       await addDoc(collection(db, "students"), {
         name: studentForm.name.trim(),
         class: studentForm.class,
@@ -197,88 +212,80 @@ export default function UltimateAdminTerminal() {
   };
 
   const handleUpdateStudent = async (id: string) => {
-    if (!editStudentName.trim()) return;
     try {
-      setFormFeedback("Updating student details...");
       await updateDoc(doc(db, "students", id), {
         name: editStudentName.trim(),
         class: editStudentClass,
       });
       setEditingStudentId(null);
-      setFormFeedback("Student record corrected successfully.");
+      setFormFeedback("Student record updated.");
       loadSystemRecords();
     } catch (err) {
-      setFormFeedback("Error modifying student record.");
+      setFormFeedback("Error updating student.");
     }
   };
 
   const handleDeleteStudent = async (id: string) => {
-    if (!confirm("Are you sure you want to purge this student from database?")) return;
+    if (!confirm("Delete student?")) return;
     try {
-      setFormFeedback("Removing student permanently...");
       await deleteDoc(doc(db, "students", id));
-      setFormFeedback("Student record completely removed.");
       loadSystemRecords();
     } catch (err) {
       setFormFeedback("Error erasing student.");
     }
   };
 
-  // --- TEACHER CRUD & ALLOCATION ---
   const handleAddTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!teacherForm.name.trim() || !teacherForm.email.trim()) return;
     try {
-      setFormFeedback("Provisioning instructor credentials...");
       await addDoc(collection(db, "teachers"), {
         name: teacherForm.name.trim(),
         email: teacherForm.email.trim().toLowerCase(),
         password: teacherForm.password || "NewGen123",
+        role: teacherForm.role,
         classTeacherOf: teacherForm.classTeacherOf || null,
         allocations: [],
-        role: "teacher",
       });
-      setTeacherForm({ name: "", email: "", password: "", classTeacherOf: "" });
-      setFormFeedback("Faculty security node created successfully!");
+      setTeacherForm({ name: "", email: "", password: "", classTeacherOf: "", role: "Subject Teacher" });
+      setFormFeedback("Faculty account provisioned!");
       loadSystemRecords();
     } catch (err) {
-      setFormFeedback("Error creating faculty node.");
+      setFormFeedback("Error provisioning account.");
     }
   };
 
   const startEditTeacher = (teacher: any) => {
     setEditingTeacherId(teacher.id);
     setEditTeacherName(teacher.name || "");
-    setEditTeacherEmail(teacher.email || teacher.id);
     setEditTeacherPassword(teacher.password || "");
+    setEditTeacherRole(teacher.role || "Subject Teacher");
     setEditTeacherClassMaster(teacher.classTeacherOf || "");
   };
 
   const handleUpdateTeacher = async (id: string) => {
     try {
-      setFormFeedback("Updating faculty details...");
       await updateDoc(doc(db, "teachers", id), {
         name: editTeacherName.trim(),
         password: editTeacherPassword,
+        role: editTeacherRole,
         classTeacherOf: editTeacherClassMaster || null,
       });
       setEditingTeacherId(null);
-      setFormFeedback("Faculty changes written to core registry.");
+      setFormFeedback("Faculty credentials and permissions updated.");
       loadSystemRecords();
     } catch (err) {
-      setFormFeedback("Error modifying faculty details.");
+      setFormFeedback("Error modifying faculty.");
     }
   };
 
   const handleDeleteTeacher = async (id: string) => {
-    if (!confirm("Deleting this teacher account removes their privileges. Proceed?")) return;
+    if (!confirm("Delete this teacher profile?")) return;
     try {
-      setFormFeedback("Deleting teacher...");
       await deleteDoc(doc(db, "teachers", id));
-      setFormFeedback("Teacher profile deleted.");
       loadSystemRecords();
     } catch (err) {
-      setFormFeedback("Error purging teacher asset.");
+      setFormFeedback("Error deleting teacher.");
     }
   };
 
@@ -286,7 +293,6 @@ export default function UltimateAdminTerminal() {
     e.preventDefault();
     if (!allocationForm.teacherId) return;
     try {
-      setFormFeedback("Appending lesson mapping allocation...");
       const teacherRef = doc(db, "teachers", allocationForm.teacherId);
       await updateDoc(teacherRef, {
         allocations: arrayUnion({
@@ -294,23 +300,23 @@ export default function UltimateAdminTerminal() {
           subject: allocationForm.subject,
         }),
       });
-      setFormFeedback("New subject blueprint assigned to instructor.");
+      setFormFeedback("Subject allocation added.");
       loadSystemRecords();
     } catch (err) {
-      setFormFeedback("Allocation indexing fault.");
+      setFormFeedback("Error setting allocation.");
     }
   };
 
-  const handleClearAllocations = async (id: string) => {
-    if (!confirm("Reset all class subject allocations for this teacher?")) return;
-    try {
-      setFormFeedback("Wiping lesson allocations...");
-      await updateDoc(doc(db, "teachers", id), { allocations: [] });
-      setFormFeedback("Allocations cleared successfully.");
-      loadSystemRecords();
-    } catch (err) {
-      setFormFeedback("Error reset mapping processing.");
-    }
+  // Helper to count active days for a subject in a specific class
+  const getActiveDaysForSubject = (cls: string, subject: string) => {
+    const classData = allClassTimetables[cls] || {};
+    let activeDays = 0;
+    daysOfWeek.forEach((day) => {
+      const daySlots = classData[day] || {};
+      const subjectPresent = Object.values(daySlots).some((s) => s === subject);
+      if (subjectPresent) activeDays++;
+    });
+    return activeDays;
   };
 
   if (!isAuthenticated) {
@@ -343,7 +349,7 @@ export default function UltimateAdminTerminal() {
     );
   }
 
-  const activeFilteringClass = assignedClassMaster ? assignedClassMaster : printFilterClass;
+  const selectedTeacherObj = teachers.find((t) => t.id === selectedTimetableTeacher);
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800">
@@ -359,20 +365,6 @@ export default function UltimateAdminTerminal() {
                 &larr; Return to Portal Entry
               </span>
             </Link>
-            {assignedClassMaster !== "NONE" && (
-              <Link href="/admin/registre">
-                <span className="bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm transition-colors cursor-pointer inline-block">
-                  📋 Open Registre Nominatif Sheets
-                </span>
-              </Link>
-            )}
-            {assignedClassMaster === null && (
-              <Link href="/admin/analytics">
-                <span className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black uppercase tracking-wider px-5 py-2.5 rounded-xl shadow-sm transition-colors cursor-pointer inline-block">
-                  📊 Open Live Analytics Dashboard
-                </span>
-              </Link>
-            )}
             <button onClick={() => { setIsAuthenticated(false); setAssignedClassMaster(null); }} className="text-[10px] font-black uppercase tracking-wider text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-2.5 rounded-xl transition-colors">
               Lock Session 🔒
             </button>
@@ -382,7 +374,7 @@ export default function UltimateAdminTerminal() {
 
       {formFeedback && (
         <div className="bg-slate-900 text-slate-100 font-mono text-center py-2 text-[10px] font-black uppercase tracking-widest animate-pulse">
-          ⚡ System Node Notice: {formFeedback}
+          ⚡ Notice: {formFeedback}
         </div>
       )}
 
@@ -394,22 +386,22 @@ export default function UltimateAdminTerminal() {
                 Metrics Overview
               </button>
               <button onClick={() => setActiveTab("students")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "students" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
-                Students Directory & Editing ({students.length})
+                Students Directory ({students.length})
               </button>
               <button onClick={() => setActiveTab("teachers")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "teachers" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
-                Faculty Profiles & Roles ({teachers.length})
+                Faculty & Roles ({teachers.length})
               </button>
-              <button onClick={() => setActiveTab("timetable")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "timetable" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
-                📅 Timetable Management
+              <button onClick={() => setActiveTab("timetable")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "timetable" ? "border-slate-900 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
+                📅 Timetable Studio (3 Views & Rules)
               </button>
             </>
           )}
           <button onClick={() => setActiveTab("printEngine")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "printEngine" || assignedClassMaster !== null ? "border-slate-900 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
-            🖨️ Report Card Generation Hub
+            🖨️ Report Card Hub
           </button>
         </div>
 
-        {/* TAB 1: OVERVIEW */}
+        {/* OVERVIEW TAB */}
         {activeTab === "overview" && assignedClassMaster === null && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
@@ -417,94 +409,47 @@ export default function UltimateAdminTerminal() {
               <span className="text-2xl font-black text-slate-900 mt-1 block font-mono">{students.length} Learners</span>
             </div>
             <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Authorized Staff Profiles</span>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Faculty Members</span>
               <span className="text-2xl font-black text-slate-900 mt-1 block font-mono">{teachers.length} Instructors</span>
             </div>
             <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Standard Class Streams</span>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Active Streams</span>
               <span className="text-2xl font-black text-emerald-600 mt-1 block font-mono">{availableClasses.length} Streams</span>
             </div>
           </div>
         )}
 
-        {/* TAB 2: STUDENTS */}
-        {activeTab === "students" && assignedClassMaster === null && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm h-fit">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-4 pb-2 border-b border-slate-100">Enroll New Learner</h3>
-              <form onSubmit={handleAddStudent} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Full Student Name</label>
-                  <input type="text" value={studentForm.name} onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold uppercase" />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Stream Placement</label>
-                  <select value={studentForm.class} onChange={(e) => setStudentForm({ ...studentForm, class: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-black">
-                    {availableClasses.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <button type="submit" className="w-full bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest py-3 rounded-xl">Commit Registry Entry</button>
-              </form>
-            </div>
-            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="overflow-y-auto max-h-[550px] divide-y divide-slate-100">
-                {students.sort((a, b) => a.class.localeCompare(b.class) || a.name.localeCompare(b.name)).map((st) => (
-                  <div key={st.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    {editingStudentId === st.id ? (
-                      <div className="flex-1 flex gap-2 items-center">
-                        <input type="text" value={editStudentName} onChange={(e) => setEditStudentName(e.target.value)} className="bg-white border-2 border-blue-500 rounded-xl px-3 py-1.5 text-sm font-bold uppercase" />
-                        <select value={editStudentClass} onChange={(e) => setEditStudentClass(e.target.value)} className="bg-white border rounded-xl px-2 py-1.5 text-sm font-black">
-                          {availableClasses.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                        <button onClick={() => handleUpdateStudent(st.id)} className="bg-emerald-600 text-white text-[9px] font-black px-3 py-2 rounded-xl">Save</button>
-                        <button onClick={() => setEditingStudentId(null)} className="bg-slate-200 text-[9px] font-black px-3 py-2 rounded-xl">Cancel</button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3">
-                        <span className="bg-slate-200 text-slate-800 text-[10px] font-black px-2 py-1 rounded-md">{st.class}</span>
-                        <span className="font-black text-sm uppercase">{st.name}</span>
-                      </div>
-                    )}
-                    {editingStudentId !== st.id && (
-                      <div className="flex gap-2">
-                        <button onClick={() => startEditStudent(st)} className="text-[10px] font-black border px-3 py-1.5 rounded-lg text-slate-600">Edit</button>
-                        <button onClick={() => handleDeleteStudent(st.id)} className="text-[10px] font-black border border-rose-200 text-rose-600">Delete</button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: FACULTY MANAGING */}
+        {/* FACULTY & ROLES MANAGEMENT */}
         {activeTab === "teachers" && assignedClassMaster === null && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm h-fit">
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-4 pb-2 border-b border-slate-100">Provision Faculty Profile</h3>
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-4 pb-2 border-b border-slate-100">Provision Faculty Profile & Privilege Level</h3>
                 <form onSubmit={handleAddTeacher} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <input type="text" value={teacherForm.name} onChange={(e) => setTeacherForm({ ...teacherForm, name: e.target.value })} placeholder="Teacher Full Name" className="w-full bg-slate-50 border p-2 text-sm rounded-xl uppercase" />
-                    <input type="email" value={teacherForm.email} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} placeholder="Email ID" className="w-full bg-slate-50 border p-2 text-sm rounded-xl" />
+                    <input type="text" value={teacherForm.name} onChange={(e) => setTeacherForm({ ...teacherForm, name: e.target.value })} placeholder="Teacher Name" className="w-full bg-slate-50 border p-2 text-sm rounded-xl uppercase" />
+                    <input type="email" value={teacherForm.email} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} placeholder="Email Address" className="w-full bg-slate-50 border p-2 text-sm rounded-xl" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <input type="text" value={teacherForm.password} onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })} placeholder="Passcode Key Pin" className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-mono" />
-                    <select value={teacherForm.classTeacherOf} onChange={(e) => setTeacherForm({ ...teacherForm, classTeacherOf: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-black">
-                      <option value="">None / Floating Instructor</option>
-                      {availableClasses.map((c) => <option key={c} value={c}>Class Master of {c}</option>)}
+                    <input type="text" value={teacherForm.password} onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })} placeholder="Passcode Pin" className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-mono" />
+                    <select value={teacherForm.role} onChange={(e) => setTeacherForm({ ...teacherForm, role: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-black">
+                      {availableRoles.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
-                  <button type="submit" className="w-full bg-slate-900 text-white text-[10px] font-black uppercase py-3 rounded-xl">Register Faculty Profile</button>
+                  <select value={teacherForm.classTeacherOf} onChange={(e) => setTeacherForm({ ...teacherForm, classTeacherOf: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-black">
+                    <option value="">None / Floating Instructor</option>
+                    {availableClasses.map((c) => <option key={c} value={c}>Class Master of {c}</option>)}
+                  </select>
+                  <button type="submit" className="w-full bg-slate-900 text-white text-[10px] font-black uppercase py-3 rounded-xl">Save Faculty Member</button>
                 </form>
               </div>
+
               <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm h-fit">
                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-4 pb-2 border-b border-slate-100">Map Subject Lesson Allocation</h3>
                 <form onSubmit={handleAddAllocation} className="space-y-4">
                   <select value={allocationForm.teacherId} onChange={(e) => setAllocationForm({ ...allocationForm, teacherId: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm font-black rounded-xl">
                     <option value="">-- Choose Instructor Document --</option>
-                    {teachers.map((t) => <option key={t.id} value={t.id}>{t.id}</option>)}
+                    {teachers.map((t) => <option key={t.id} value={t.id}>{t.name || t.id}</option>)}
                   </select>
                   <div className="grid grid-cols-2 gap-4">
                     <select value={allocationForm.class} onChange={(e) => setAllocationForm({ ...allocationForm, class: e.target.value })} className="bg-slate-50 border p-2 text-sm font-black rounded-xl">
@@ -514,15 +459,17 @@ export default function UltimateAdminTerminal() {
                       {subjectsList.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
-                  <button type="submit" className="w-full bg-blue-600 text-white text-[10px] font-black uppercase py-3 rounded-xl">Bind Subject Mapping Allocation</button>
+                  <button type="submit" className="w-full bg-blue-600 text-white text-[10px] font-black uppercase py-3 rounded-xl">Bind Subject Mapping</button>
                 </form>
               </div>
             </div>
+
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="text-[9px] font-black text-slate-400 uppercase tracking-wider border-b bg-slate-50 h-10">
-                    <th className="p-4">Teacher Document (ID)</th>
+                    <th className="p-4">Teacher Name / ID</th>
+                    <th className="p-4">Assigned Role</th>
                     <th className="p-4">Class Master Assignment</th>
                     <th className="p-4 text-right">Actions</th>
                   </tr>
@@ -532,30 +479,36 @@ export default function UltimateAdminTerminal() {
                     <tr key={t.id} className="hover:bg-slate-50/50">
                       <td className="p-4">
                         {editingTeacherId === t.id ? (
-                          <div className="flex flex-col gap-1 p-1 bg-slate-50 border rounded-xl">
-                            <input type="text" value={editTeacherName} onChange={(e) => setEditTeacherName(e.target.value)} placeholder="Display Name" className="border p-1 text-xs uppercase" />
-                            <input type="text" value={editTeacherPassword} onChange={(e) => setEditTeacherPassword(e.target.value)} placeholder="Password Key" className="border p-1 text-xs font-mono" />
-                            <button onClick={() => handleUpdateTeacher(t.id)} className="bg-emerald-600 text-white px-2 py-0.5 text-[9px] rounded">Save</button>
-                          </div>
+                          <input type="text" value={editTeacherName} onChange={(e) => setEditTeacherName(e.target.value)} className="border p-1 text-xs uppercase rounded" />
                         ) : (
                           <div>
-                            <div className="font-black text-slate-900">{t.id}</div>
-                            <div className="text-[10px] text-slate-400">Name: <span className="uppercase text-slate-700 font-bold">{t.name || "Not Configured"}</span> | Passcode Key: <span className="text-blue-600 font-mono font-bold">{t.password || "123456"}</span></div>
+                            <div className="font-black text-slate-900">{t.name || t.id}</div>
+                            <div className="text-[10px] text-slate-400">Passcode: <span className="font-mono text-blue-600">{t.password || "123456"}</span></div>
                           </div>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        {editingTeacherId === t.id ? (
+                          <select value={editTeacherRole} onChange={(e) => setEditTeacherRole(e.target.value)} className="border p-1 text-xs rounded">
+                            {availableRoles.map((r) => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        ) : (
+                          <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 rounded-md text-[10px] font-black">{t.role || "Subject Teacher"}</span>
                         )}
                       </td>
                       <td className="p-4">
                         {t.classTeacherOf ? (
                           <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[10px] font-black">{t.classTeacherOf} MASTER</span>
-                        ) : t.classes && Array.isArray(t.classes) && t.classes.length > 0 ? (
-                          <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[10px] font-black">{t.classes.join(", ")} MASTER</span>
                         ) : (
-                          <span className="text-slate-300 text-[9px]">None</span>
+                          <span className="text-slate-300 text-[10px]">None</span>
                         )}
                       </td>
                       <td className="p-4 text-right space-x-1">
-                        <button onClick={() => startEditTeacher(t)} className="text-[10px] font-black border px-2 py-1 rounded">Edit</button>
-                        <button onClick={() => handleClearAllocations(t.id)} className="text-[10px] font-black border text-amber-600 px-2 py-1 rounded">Reset Maps</button>
+                        {editingTeacherId === t.id ? (
+                          <button onClick={() => handleUpdateTeacher(t.id)} className="bg-emerald-600 text-white px-3 py-1 rounded text-[10px]">Save</button>
+                        ) : (
+                          <button onClick={() => startEditTeacher(t)} className="text-[10px] font-black border px-2.5 py-1 rounded">Edit Privilege</button>
+                        )}
                         <button onClick={() => handleDeleteTeacher(t.id)} className="text-[10px] font-black border text-rose-600 px-2 py-1 rounded">Delete</button>
                       </td>
                     </tr>
@@ -566,71 +519,243 @@ export default function UltimateAdminTerminal() {
           </div>
         )}
 
-        {/* TAB 4: TIMETABLE MANAGEMENT */}
+        {/* TIMETABLE CONTROL STUDIO (3 VIEWS & RULE ENGINE) */}
         {activeTab === "timetable" && assignedClassMaster === null && (
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b">
               <div>
-                <h3 className="font-black text-slate-900 uppercase text-sm tracking-wide">Class Timetable Matrix</h3>
-                <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Configure weekly class schedules per stream</p>
+                <h3 className="font-black text-slate-900 uppercase text-sm tracking-wide">Timetable Control Studio</h3>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Switch views or configure subject frequency limits</p>
               </div>
-              <div className="flex items-center gap-3">
-                <select
-                  value={selectedTimetableClass}
-                  onChange={(e) => setSelectedTimetableClass(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 p-2.5 text-xs font-black rounded-xl"
-                >
-                  {availableClasses.map((c) => (
-                    <option key={c} value={c}>Class Stream: {c}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={handleSaveTimetable}
-                  disabled={savingTimetable}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black uppercase tracking-wider px-5 py-2.5 rounded-xl shadow-sm transition-colors"
-                >
-                  {savingTimetable ? "Saving..." : "Save Timetable 💾"}
+
+              {/* Sub Tab View Switcher */}
+              <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                <button onClick={() => setTimetableSubTab("class")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "class" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                  1. Single Class Schedule
+                </button>
+                <button onClick={() => setTimetableSubTab("teacher")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "teacher" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                  2. Teacher Schedule
+                </button>
+                <button onClick={() => setTimetableSubTab("master")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "master" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                  3. Master School Matrix
+                </button>
+                <button onClick={() => setTimetableSubTab("rules")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "rules" ? "bg-blue-600 text-white shadow-sm" : "text-slate-500"}`}>
+                  ⚙️ Frequency Rules
                 </button>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[700px]">
-                <thead>
-                  <tr className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider">
-                    <th className="p-3 border border-slate-800 w-32">Time Slot</th>
-                    {daysOfWeek.map((day) => (
-                      <th key={day} className="p-3 border border-slate-800 text-center">{day}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 text-xs font-bold">
-                  {timeSlots.map((slot) => (
-                    <tr key={slot} className="hover:bg-slate-50/50">
-                      <td className="p-3 bg-slate-50 border font-mono text-[11px] text-slate-600">{slot}</td>
-                      {daysOfWeek.map((day) => (
-                        <td key={`${day}-${slot}`} className="p-2 border text-center">
-                          <select
-                            value={timetableData[day]?.[slot] || ""}
-                            onChange={(e) => handleCellChange(day, slot, e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500"
-                          >
-                            <option value="">-- Break / Free --</option>
-                            {subjectsList.map((subject) => (
-                              <option key={subject} value={subject}>{subject}</option>
+            {/* VIEW 1: SINGLE CLASS TIMETABLE */}
+            {timetableSubTab === "class" && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase text-slate-500">Select Stream:</span>
+                    <select value={selectedTimetableClass} onChange={(e) => setSelectedTimetableClass(e.target.value)} className="bg-slate-50 border p-2 text-xs font-black rounded-xl">
+                      {availableClasses.map((c) => <option key={c} value={c}>Class {c}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={() => handleSaveClassTimetable(selectedTimetableClass)} disabled={savingTimetable} className="bg-blue-600 text-white text-[10px] font-black uppercase px-4 py-2 rounded-xl">
+                    {savingTimetable ? "Saving..." : "Save Stream Schedule 💾"}
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="bg-slate-900 text-white text-[10px] font-black uppercase">
+                        <th className="p-3 border border-slate-800 w-36">Period / Time</th>
+                        {daysOfWeek.map((day) => <th key={day} className="p-3 border border-slate-800 text-center">{day}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-xs font-bold">
+                      {timeSlots.map((slot) => {
+                        const isLocked = slot.includes("BREAK") || slot.includes("LUNCH") || slot.includes("DEBATE");
+                        return (
+                          <tr key={slot} className={isLocked ? "bg-amber-50/60" : "hover:bg-slate-50"}>
+                            <td className="p-3 border font-mono text-[10px] text-slate-700 bg-slate-50">{slot}</td>
+                            {daysOfWeek.map((day) => (
+                              <td key={`${day}-${slot}`} className="p-2 border text-center">
+                                {isLocked ? (
+                                  <span className="text-[10px] font-black text-amber-800 uppercase tracking-wider">{slot.split(" ")[1]}</span>
+                                ) : (
+                                  <select
+                                    value={allClassTimetables[selectedTimetableClass]?.[day]?.[slot] || ""}
+                                    onChange={(e) => handleCellChange(selectedTimetableClass, day, slot, e.target.value)}
+                                    className="w-full bg-slate-50 border rounded-lg p-1 text-xs font-bold focus:border-blue-500"
+                                  >
+                                    <option value="">-- Free --</option>
+                                    {subjectsList.map((subj) => (
+                                      <option key={subj} value={subj}>{subj}</option>
+                                    ))}
+                                  </select>
+                                )}
+                              </td>
                             ))}
-                          </select>
-                        </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* VIEW 2: INDIVIDUAL TEACHER TIMETABLE */}
+            {timetableSubTab === "teacher" && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 pb-2">
+                  <span className="text-xs font-black uppercase text-slate-500">Filter Schedule by Teacher:</span>
+                  <select value={selectedTimetableTeacher} onChange={(e) => setSelectedTimetableTeacher(e.target.value)} className="bg-slate-50 border p-2 text-xs font-black rounded-xl">
+                    {teachers.map((t) => <option key={t.id} value={t.id}>{t.name || t.id}</option>)}
+                  </select>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="bg-slate-800 text-white text-[10px] font-black uppercase">
+                        <th className="p-3 border border-slate-700">Period</th>
+                        {daysOfWeek.map((d) => <th key={d} className="p-3 border border-slate-700 text-center">{d}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-xs font-bold">
+                      {timeSlots.map((slot) => (
+                        <tr key={slot}>
+                          <td className="p-3 border font-mono text-[10px] text-slate-600 bg-slate-50">{slot}</td>
+                          {daysOfWeek.map((day) => {
+                            // Find matching class where teacher is allocated for this subject
+                            let assignedClassSubj = "";
+                            availableClasses.forEach((cls) => {
+                              const scheduledSubj = allClassTimetables[cls]?.[day]?.[slot];
+                              if (scheduledSubj) {
+                                const isAssigned = selectedTeacherObj?.allocations?.some(
+                                  (a: any) => a.class === cls && a.subject === scheduledSubj
+                                );
+                                if (isAssigned) {
+                                  assignedClassSubj = `${scheduledSubj} (${cls})`;
+                                }
+                              }
+                            });
+                            return (
+                              <td key={`${day}-${slot}`} className="p-3 border text-center">
+                                {assignedClassSubj ? (
+                                  <span className="bg-blue-100 text-blue-900 px-2 py-1 rounded text-[11px] font-black">{assignedClassSubj}</span>
+                                ) : (
+                                  <span className="text-slate-300 text-[10px]">-- Free --</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
                       ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* VIEW 3: MASTER SCHOOL TIMETABLE (SIDE-BY-SIDE) */}
+            {timetableSubTab === "master" && (
+              <div className="space-y-4">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
+                    <thead>
+                      <tr className="bg-slate-950 text-white text-[9px] font-black uppercase">
+                        <th className="p-2 border border-slate-800">Day & Slot</th>
+                        {availableClasses.map((cls) => (
+                          <th key={cls} className="p-2 border border-slate-800 text-center bg-blue-900/40">Class {cls}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-xs font-bold">
+                      {daysOfWeek.map((day) =>
+                        timeSlots.map((slot) => (
+                          <tr key={`${day}-${slot}`} className="hover:bg-slate-50">
+                            <td className="p-2 border text-[10px] font-mono bg-slate-50 text-slate-700">
+                              <span className="font-black text-slate-900 block">{day}</span>
+                              {slot}
+                            </td>
+                            {availableClasses.map((cls) => {
+                              const subj = allClassTimetables[cls]?.[day]?.[slot];
+                              return (
+                                <td key={`${cls}-${day}-${slot}`} className="p-2 border text-center text-[10px]">
+                                  {subj ? (
+                                    <span className="bg-slate-800 text-white px-2 py-0.5 rounded font-black">{subj}</span>
+                                  ) : (
+                                    <span className="text-slate-300">--</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* RULES & FREQUENCY CONTROL ENGINE */}
+            {timetableSubTab === "rules" && (
+              <div className="space-y-6">
+                <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-xs space-y-1">
+                  <h4 className="font-black text-blue-900 uppercase">🧠 Subject Frequency Spreading Algorithm</h4>
+                  <p className="text-blue-800">
+                    Configure the required active teaching days per week for each subject. Before placing lessons, the scheduler ensures subjects meet their exact target distribution without cognitive overload.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-slate-50 p-4 rounded-xl border space-y-4">
+                    <h4 className="text-xs font-black uppercase text-slate-900">Configure Target Days / Week</h4>
+                    {subjectsList.map((subj) => (
+                      <div key={subj} className="flex justify-between items-center">
+                        <span className="text-xs font-bold">{subj}:</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="5"
+                            value={subjectFrequencyRules[subj] || 1}
+                            onChange={(e) => setSubjectFrequencyRules({ ...subjectFrequencyRules, [subj]: parseInt(e.target.value) || 1 })}
+                            className="w-16 border rounded p-1 text-center text-xs font-mono font-bold"
+                          />
+                          <span className="text-[10px] text-slate-500 font-bold">days / week</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-xl border space-y-3">
+                    <h4 className="text-xs font-black uppercase text-slate-900">Class {selectedTimetableClass} Frequency Audit</h4>
+                    <div className="space-y-2 text-xs">
+                      {subjectsList.map((subj) => {
+                        const target = subjectFrequencyRules[subj] || 0;
+                        const actual = getActiveDaysForSubject(selectedTimetableClass, subj);
+                        const isSatisfied = actual >= target;
+                        return (
+                          <div key={subj} className="flex justify-between items-center p-2 bg-white rounded border">
+                            <span className="font-bold">{subj}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[11px] font-bold">{actual} / {target} Active Days</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded font-black ${isSatisfied ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                                {isSatisfied ? "✓ OK" : "Needs Allocation"}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* TAB 5: PRINT ENGINE HUB */}
+        {/* REPORT CARD HUB */}
         {(activeTab === "printEngine" || assignedClassMaster !== null) && (
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
             <div className="flex justify-between items-center pb-4 border-b">
@@ -642,20 +767,16 @@ export default function UltimateAdminTerminal() {
               )}
             </div>
             <div className="divide-y divide-slate-100">
-              {students.filter((s) => s.class === activeFilteringClass).length === 0 ? (
-                <p className="text-center py-8 text-xs font-bold text-slate-400 uppercase tracking-wider">No student index entries discovered contextually linked to Stream {activeFilteringClass}</p>
-              ) : (
-                students.filter((s) => s.class === activeFilteringClass).map((st) => (
-                  <div key={st.id} className="p-4 flex justify-between items-center hover:bg-slate-50/30 transition-colors">
-                    <span className="font-black uppercase text-sm text-slate-900 tracking-wide">{st.name}</span>
-                    <Link href={`/reports?studentId=${st.id}&class=${activeFilteringClass}`} target="_blank">
-                      <span className="bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-600 hover:text-white transition-all text-[10px] font-black uppercase px-4 py-2 rounded-xl tracking-wider cursor-pointer">
-                        Preview & Print Report Card 🖨️
-                      </span>
-                    </Link>
-                  </div>
-                ))
-              )}
+              {students.filter((s) => s.class === (assignedClassMaster || printFilterClass)).map((st) => (
+                <div key={st.id} className="p-4 flex justify-between items-center hover:bg-slate-50/30">
+                  <span className="font-black uppercase text-sm text-slate-900">{st.name}</span>
+                  <Link href={`/reports?studentId=${st.id}&class=${st.class}`} target="_blank">
+                    <span className="bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-600 hover:text-white text-[10px] font-black uppercase px-4 py-2 rounded-xl transition-colors inline-block cursor-pointer">
+                      Preview Report Card 🖨️
+                    </span>
+                  </Link>
+                </div>
+              ))}
             </div>
           </div>
         )}

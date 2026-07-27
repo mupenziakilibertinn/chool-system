@@ -2,33 +2,47 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { db } from "../../lib/firebase";
-import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, arrayUnion } from "firebase/firestore";
+import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, arrayUnion, setDoc, getDoc } from "firebase/firestore";
 
 const availableClasses = ["P1", "P2", "P3", "P4", "P5", "P6"];
 const subjectsList = ["Mathematics", "Kinyarwanda", "English", "SET", "SRE", "French"];
+const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const timeSlots = [
+  "08:00 - 08:40",
+  "08:40 - 09:20",
+  "09:20 - 10:00",
+  "10:20 - 11:00",
+  "11:00 - 11:40",
+  "11:40 - 12:20",
+];
 
 export default function UltimateAdminTerminal() {
   // Authentication Guard States
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
   const [authError, setAuthError] = useState("");
-  
+
   // Teacher Accountability Tracking State
   const [assignedClassMaster, setAssignedClassMaster] = useState<string | null>(null);
   const [loggedInUserTitle, setLoggedInUserTitle] = useState("System Administrator");
-  
+
   // Data Pipeline Matrix States
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "printEngine">("overview");
-  
+  const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "timetable" | "printEngine">("overview");
+
   // Creation Form Binder States
   const [studentForm, setStudentForm] = useState({ name: "", class: "P1" });
   const [teacherForm, setTeacherForm] = useState({ name: "", email: "", password: "", classTeacherOf: "" });
   const [allocationForm, setAllocationForm] = useState({ teacherId: "", class: "P1", subject: "Mathematics" });
   const [formFeedback, setFormFeedback] = useState("");
-  
+
+  // Timetable State
+  const [selectedTimetableClass, setSelectedTimetableClass] = useState("P1");
+  const [timetableData, setTimetableData] = useState<Record<string, Record<string, string>>>({});
+  const [savingTimetable, setSavingTimetable] = useState(false);
+
   // Inline Operational Modification (Editing) States
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [editStudentName, setEditStudentName] = useState("");
@@ -38,7 +52,7 @@ export default function UltimateAdminTerminal() {
   const [editTeacherEmail, setEditTeacherEmail] = useState("");
   const [editTeacherPassword, setEditTeacherPassword] = useState("");
   const [editTeacherClassMaster, setEditTeacherClassMaster] = useState("");
-  
+
   // Printing Selector Filters
   const [printFilterClass, setPrintFilterClass] = useState("P1");
 
@@ -48,12 +62,57 @@ export default function UltimateAdminTerminal() {
     }
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    if (isAuthenticated && activeTab === "timetable") {
+      fetchTimetable(selectedTimetableClass);
+    }
+  }, [selectedTimetableClass, activeTab, isAuthenticated]);
+
+  const fetchTimetable = async (className: string) => {
+    try {
+      const docRef = doc(db, "timetables", className);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setTimetableData(docSnap.data().schedule || {});
+      } else {
+        setTimetableData({});
+      }
+    } catch (err) {
+      console.error("Error loading timetable:", err);
+      setFormFeedback("Failed to load timetable.");
+    }
+  };
+
+  const handleCellChange = (day: string, slot: string, subject: string) => {
+    setTimetableData((prev) => ({
+      ...prev,
+      [day]: {
+        ...(prev[day] || {}),
+        [slot]: subject,
+      },
+    }));
+  };
+
+  const handleSaveTimetable = async () => {
+    setSavingTimetable(true);
+    try {
+      await setDoc(doc(db, "timetables", selectedTimetableClass), {
+        class: selectedTimetableClass,
+        schedule: timetableData,
+        updatedAt: new Date().toISOString(),
+      });
+      setFormFeedback(`Timetable for ${selectedTimetableClass} saved successfully!`);
+    } catch (err) {
+      setFormFeedback("Error saving timetable.");
+    }
+    setSavingTimetable(false);
+  };
+
   // DEEP PASSCODE NETWORK MATRIX SCANNER
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPassword = adminPassword.trim();
-    
-    // 1. Master Administration Passwords
+
     if (cleanPassword === "AdminNG2026" || cleanPassword === "ngschoolowner") {
       setAssignedClassMaster(null);
       setLoggedInUserTitle("Master Administrator");
@@ -62,24 +121,21 @@ export default function UltimateAdminTerminal() {
       setActiveTab("overview");
       return;
     }
-    
-    // 2. Scan Faculty Collection Records
+
     try {
       setAuthError("Verifying credentials...");
       const tSnap = await getDocs(collection(db, "teachers"));
       let matchingTeacher: any = null;
-      
+
       tSnap.forEach((teacherDoc) => {
         const data = teacherDoc.data();
-        // Match user text directly against the actual database field value
         if (data.password && String(data.password).trim() === cleanPassword) {
           matchingTeacher = { id: teacherDoc.id, ...data };
         }
       });
 
       if (matchingTeacher) {
-        let lockedClass = "P4"; // Secure fallback value
-        // Flexibly read from classTeacherOf or the classes array fields
+        let lockedClass = "P4";
         if (matchingTeacher.classTeacherOf) {
           lockedClass = String(matchingTeacher.classTeacherOf).trim();
         } else if (matchingTeacher.classes && Array.isArray(matchingTeacher.classes) && matchingTeacher.classes.length > 0) {
@@ -87,13 +143,13 @@ export default function UltimateAdminTerminal() {
         } else if (matchingTeacher.id.toLowerCase().includes("didier")) {
           lockedClass = "P4";
         }
-        
+
         setAssignedClassMaster(lockedClass);
         setPrintFilterClass(lockedClass);
         setLoggedInUserTitle(`Tr. ${matchingTeacher.name || "INSTRUCTOR"} (${lockedClass} Master)`);
         setIsAuthenticated(true);
         setAuthError("");
-        setActiveTab("printEngine"); // Send teachers straight to the printing engine
+        setActiveTab("printEngine");
       } else {
         setAuthError("INVALID IDENTITY PASSCODE KEY");
       }
@@ -106,9 +162,9 @@ export default function UltimateAdminTerminal() {
     setLoading(true);
     try {
       const sSnap = await getDocs(collection(db, "students"));
-      setStudents(sSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setStudents(sSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
       const tSnap = await getDocs(collection(db, "teachers"));
-      setTeachers(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setTeachers(tSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error("Database pull failure:", err);
     }
@@ -124,7 +180,7 @@ export default function UltimateAdminTerminal() {
       await addDoc(collection(db, "students"), {
         name: studentForm.name.trim(),
         class: studentForm.class,
-        registeredAt: new Date().toISOString()
+        registeredAt: new Date().toISOString(),
       });
       setStudentForm({ name: "", class: "P1" });
       setFormFeedback("Student enrolled successfully!");
@@ -143,10 +199,10 @@ export default function UltimateAdminTerminal() {
   const handleUpdateStudent = async (id: string) => {
     if (!editStudentName.trim()) return;
     try {
-      setFormFeedback("Updating student name/class details...");
+      setFormFeedback("Updating student details...");
       await updateDoc(doc(db, "students", id), {
         name: editStudentName.trim(),
-        class: editStudentClass
+        class: editStudentClass,
       });
       setEditingStudentId(null);
       setFormFeedback("Student record corrected successfully.");
@@ -157,7 +213,7 @@ export default function UltimateAdminTerminal() {
   };
 
   const handleDeleteStudent = async (id: string) => {
-    if (!confirm("Are you absolutely certain you want to purge this student from database?")) return;
+    if (!confirm("Are you sure you want to purge this student from database?")) return;
     try {
       setFormFeedback("Removing student permanently...");
       await deleteDoc(doc(db, "students", id));
@@ -180,7 +236,7 @@ export default function UltimateAdminTerminal() {
         password: teacherForm.password || "NewGen123",
         classTeacherOf: teacherForm.classTeacherOf || null,
         allocations: [],
-        role: "teacher"
+        role: "teacher",
       });
       setTeacherForm({ name: "", email: "", password: "", classTeacherOf: "" });
       setFormFeedback("Faculty security node created successfully!");
@@ -200,11 +256,11 @@ export default function UltimateAdminTerminal() {
 
   const handleUpdateTeacher = async (id: string) => {
     try {
-      setFormFeedback("Updating faculty information matrix...");
+      setFormFeedback("Updating faculty details...");
       await updateDoc(doc(db, "teachers", id), {
         name: editTeacherName.trim(),
         password: editTeacherPassword,
-        classTeacherOf: editTeacherClassMaster || null
+        classTeacherOf: editTeacherClassMaster || null,
       });
       setEditingTeacherId(null);
       setFormFeedback("Faculty changes written to core registry.");
@@ -215,9 +271,9 @@ export default function UltimateAdminTerminal() {
   };
 
   const handleDeleteTeacher = async (id: string) => {
-    if (!confirm("Warning! Deleting this teacher account removes their grading access privileges. Proceed?")) return;
+    if (!confirm("Deleting this teacher account removes their privileges. Proceed?")) return;
     try {
-      setFormFeedback("De-allocating and deleting teacher...");
+      setFormFeedback("Deleting teacher...");
       await deleteDoc(doc(db, "teachers", id));
       setFormFeedback("Teacher profile deleted.");
       loadSystemRecords();
@@ -235,8 +291,8 @@ export default function UltimateAdminTerminal() {
       await updateDoc(teacherRef, {
         allocations: arrayUnion({
           class: allocationForm.class,
-          subject: allocationForm.subject
-        })
+          subject: allocationForm.subject,
+        }),
       });
       setFormFeedback("New subject blueprint assigned to instructor.");
       loadSystemRecords();
@@ -306,19 +362,19 @@ export default function UltimateAdminTerminal() {
             {assignedClassMaster !== "NONE" && (
               <Link href="/admin/registre">
                 <span className="bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm transition-colors cursor-pointer inline-block">
-                  📋  Open Registre Nominatif Sheets
+                  📋 Open Registre Nominatif Sheets
                 </span>
               </Link>
             )}
             {assignedClassMaster === null && (
               <Link href="/admin/analytics">
                 <span className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black uppercase tracking-wider px-5 py-2.5 rounded-xl shadow-sm transition-colors cursor-pointer inline-block">
-                  📊  Open Live Analytics Dashboard
+                  📊 Open Live Analytics Dashboard
                 </span>
               </Link>
             )}
             <button onClick={() => { setIsAuthenticated(false); setAssignedClassMaster(null); }} className="text-[10px] font-black uppercase tracking-wider text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-2.5 rounded-xl transition-colors">
-              Lock Session  🔒
+              Lock Session 🔒
             </button>
           </div>
         </div>
@@ -326,7 +382,7 @@ export default function UltimateAdminTerminal() {
 
       {formFeedback && (
         <div className="bg-slate-900 text-slate-100 font-mono text-center py-2 text-[10px] font-black uppercase tracking-widest animate-pulse">
-          ⚡  System Node Notice: {formFeedback}
+          ⚡ System Node Notice: {formFeedback}
         </div>
       )}
 
@@ -343,10 +399,13 @@ export default function UltimateAdminTerminal() {
               <button onClick={() => setActiveTab("teachers")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "teachers" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
                 Faculty Profiles & Roles ({teachers.length})
               </button>
+              <button onClick={() => setActiveTab("timetable")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "timetable" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
+                📅 Timetable Management
+              </button>
             </>
           )}
           <button onClick={() => setActiveTab("printEngine")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "printEngine" || assignedClassMaster !== null ? "border-slate-900 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
-            🖨️  Report Card Generation Hub
+            🖨️ Report Card Generation Hub
           </button>
         </div>
 
@@ -381,7 +440,7 @@ export default function UltimateAdminTerminal() {
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Stream Placement</label>
                   <select value={studentForm.class} onChange={(e) => setStudentForm({ ...studentForm, class: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-black">
-                    {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                    {availableClasses.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <button type="submit" className="w-full bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest py-3 rounded-xl">Commit Registry Entry</button>
@@ -389,13 +448,13 @@ export default function UltimateAdminTerminal() {
             </div>
             <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
               <div className="overflow-y-auto max-h-[550px] divide-y divide-slate-100">
-                {students.sort((a,b) => a.class.localeCompare(b.class) || a.name.localeCompare(b.name)).map((st) => (
+                {students.sort((a, b) => a.class.localeCompare(b.class) || a.name.localeCompare(b.name)).map((st) => (
                   <div key={st.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     {editingStudentId === st.id ? (
                       <div className="flex-1 flex gap-2 items-center">
                         <input type="text" value={editStudentName} onChange={(e) => setEditStudentName(e.target.value)} className="bg-white border-2 border-blue-500 rounded-xl px-3 py-1.5 text-sm font-bold uppercase" />
                         <select value={editStudentClass} onChange={(e) => setEditStudentClass(e.target.value)} className="bg-white border rounded-xl px-2 py-1.5 text-sm font-black">
-                          {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                          {availableClasses.map((c) => <option key={c} value={c}>{c}</option>)}
                         </select>
                         <button onClick={() => handleUpdateStudent(st.id)} className="bg-emerald-600 text-white text-[9px] font-black px-3 py-2 rounded-xl">Save</button>
                         <button onClick={() => setEditingStudentId(null)} className="bg-slate-200 text-[9px] font-black px-3 py-2 rounded-xl">Cancel</button>
@@ -434,7 +493,7 @@ export default function UltimateAdminTerminal() {
                     <input type="text" value={teacherForm.password} onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })} placeholder="Passcode Key Pin" className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-mono" />
                     <select value={teacherForm.classTeacherOf} onChange={(e) => setTeacherForm({ ...teacherForm, classTeacherOf: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-black">
                       <option value="">None / Floating Instructor</option>
-                      {availableClasses.map(c => <option key={c} value={c}>Class Master of {c}</option>)}
+                      {availableClasses.map((c) => <option key={c} value={c}>Class Master of {c}</option>)}
                     </select>
                   </div>
                   <button type="submit" className="w-full bg-slate-900 text-white text-[10px] font-black uppercase py-3 rounded-xl">Register Faculty Profile</button>
@@ -445,14 +504,14 @@ export default function UltimateAdminTerminal() {
                 <form onSubmit={handleAddAllocation} className="space-y-4">
                   <select value={allocationForm.teacherId} onChange={(e) => setAllocationForm({ ...allocationForm, teacherId: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm font-black rounded-xl">
                     <option value="">-- Choose Instructor Document --</option>
-                    {teachers.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}
+                    {teachers.map((t) => <option key={t.id} value={t.id}>{t.id}</option>)}
                   </select>
                   <div className="grid grid-cols-2 gap-4">
                     <select value={allocationForm.class} onChange={(e) => setAllocationForm({ ...allocationForm, class: e.target.value })} className="bg-slate-50 border p-2 text-sm font-black rounded-xl">
-                      {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                      {availableClasses.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                     <select value={allocationForm.subject} onChange={(e) => setAllocationForm({ ...allocationForm, subject: e.target.value })} className="bg-slate-50 border p-2 text-sm font-black rounded-xl">
-                      {subjectsList.map(s => <option key={s} value={s}>{s}</option>)}
+                      {subjectsList.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                   <button type="submit" className="w-full bg-blue-600 text-white text-[10px] font-black uppercase py-3 rounded-xl">Bind Subject Mapping Allocation</button>
@@ -507,27 +566,88 @@ export default function UltimateAdminTerminal() {
           </div>
         )}
 
-        {/* TAB 4: PRINT ENGINE HUB */}
+        {/* TAB 4: TIMETABLE MANAGEMENT */}
+        {activeTab === "timetable" && assignedClassMaster === null && (
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="font-black text-slate-900 uppercase text-sm tracking-wide">Class Timetable Matrix</h3>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Configure weekly class schedules per stream</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={selectedTimetableClass}
+                  onChange={(e) => setSelectedTimetableClass(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 p-2.5 text-xs font-black rounded-xl"
+                >
+                  {availableClasses.map((c) => (
+                    <option key={c} value={c}>Class Stream: {c}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleSaveTimetable}
+                  disabled={savingTimetable}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black uppercase tracking-wider px-5 py-2.5 rounded-xl shadow-sm transition-colors"
+                >
+                  {savingTimetable ? "Saving..." : "Save Timetable 💾"}
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[700px]">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider">
+                    <th className="p-3 border border-slate-800 w-32">Time Slot</th>
+                    {daysOfWeek.map((day) => (
+                      <th key={day} className="p-3 border border-slate-800 text-center">{day}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 text-xs font-bold">
+                  {timeSlots.map((slot) => (
+                    <tr key={slot} className="hover:bg-slate-50/50">
+                      <td className="p-3 bg-slate-50 border font-mono text-[11px] text-slate-600">{slot}</td>
+                      {daysOfWeek.map((day) => (
+                        <td key={`${day}-${slot}`} className="p-2 border text-center">
+                          <select
+                            value={timetableData[day]?.[slot] || ""}
+                            onChange={(e) => handleCellChange(day, slot, e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500"
+                          >
+                            <option value="">-- Break / Free --</option>
+                            {subjectsList.map((subject) => (
+                              <option key={subject} value={subject}>{subject}</option>
+                            ))}
+                          </select>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: PRINT ENGINE HUB */}
         {(activeTab === "printEngine" || assignedClassMaster !== null) && (
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
             <div className="flex justify-between items-center pb-4 border-b">
               <h3 className="font-black text-slate-900 uppercase text-sm tracking-wide">Report Generator Workspace Matrix</h3>
               {assignedClassMaster === null && (
                 <select value={printFilterClass} onChange={(e) => setPrintFilterClass(e.target.value)} className="bg-slate-50 border p-2 text-xs font-black rounded-xl">
-                  {availableClasses.map(c => <option key={c} value={c}>Roster Filter: Stream {c}</option>)}
+                  {availableClasses.map((c) => <option key={c} value={c}>Roster Filter: Stream {c}</option>)}
                 </select>
               )}
             </div>
-
             <div className="divide-y divide-slate-100">
-              {students.filter(s => s.class === activeFilteringClass).length === 0 ? (
+              {students.filter((s) => s.class === activeFilteringClass).length === 0 ? (
                 <p className="text-center py-8 text-xs font-bold text-slate-400 uppercase tracking-wider">No student index entries discovered contextually linked to Stream {activeFilteringClass}</p>
               ) : (
-                students.filter(s => s.class === activeFilteringClass).map((st) => (
+                students.filter((s) => s.class === activeFilteringClass).map((st) => (
                   <div key={st.id} className="p-4 flex justify-between items-center hover:bg-slate-50/30 transition-colors">
                     <span className="font-black uppercase text-sm text-slate-900 tracking-wide">{st.name}</span>
-                    
-                    {/* FIXED LINK INTERPOLATION ROUTING LINE */}
                     <Link href={`/reports?studentId=${st.id}&class=${activeFilteringClass}`} target="_blank">
                       <span className="bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-600 hover:text-white transition-all text-[10px] font-black uppercase px-4 py-2 rounded-xl tracking-wider cursor-pointer">
                         Preview & Print Report Card 🖨️
@@ -543,4 +663,3 @@ export default function UltimateAdminTerminal() {
     </div>
   );
 }
-

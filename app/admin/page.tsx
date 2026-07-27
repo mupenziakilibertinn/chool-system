@@ -29,6 +29,13 @@ const availableRoles = [
   "Discipline Master",
 ];
 
+const presetColors = ["#3B82F6", "#10B981", "#F59E0B", "#EC4899", "#8B5CF6", "#6366F1", "#06B6D4", "#64748B"];
+
+interface ClassSubjectRule {
+  daysPerWeek: number;
+  periodsPerDay: number; // 1 = Single Period, 2 = Double Period
+}
+
 export default function UltimateAdminTerminal() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
@@ -43,25 +50,25 @@ export default function UltimateAdminTerminal() {
   const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "timetable" | "printEngine">("overview");
 
   const [studentForm, setStudentForm] = useState({ name: "", class: "P1" });
-  const [teacherForm, setTeacherForm] = useState({ name: "", email: "", password: "", classTeacherOf: "", role: "Subject Teacher" });
+  const [teacherForm, setTeacherForm] = useState({ name: "", email: "", password: "", classTeacherOf: "", role: "Subject Teacher", color: "#3B82F6" });
   const [allocationForm, setAllocationForm] = useState({ teacherId: "", class: "P1", subject: "Mathematics" });
   const [formFeedback, setFormFeedback] = useState("");
 
-  // Timetable State & Rule Engine
-  const [timetableSubTab, setTimetableSubTab] = useState<"class" | "teacher" | "master" | "rules">("class");
+  // Timetable State
+  const [timetableSubTab, setTimetableSubTab] = useState<"class" | "teacher" | "master" | "rules" | "lockedSlots">("class");
   const [selectedTimetableClass, setSelectedTimetableClass] = useState("P1");
   const [selectedTimetableTeacher, setSelectedTimetableTeacher] = useState("");
   const [allClassTimetables, setAllClassTimetables] = useState<Record<string, Record<string, Record<string, string>>>>({});
   const [savingTimetable, setSavingTimetable] = useState(false);
 
-  // Subject Frequency Rules (e.g., { "Mathematics": 5, "French": 2 })
-  const [subjectFrequencyRules, setSubjectFrequencyRules] = useState<Record<string, number>>({
-    Mathematics: 5,
-    Kinyarwanda: 5,
-    English: 5,
-    SET: 3,
-    SRE: 2,
-    French: 2,
+  // Per-Class Subject Rules Configuration: { "P1": { "Mathematics": { daysPerWeek: 5, periodsPerDay: 1 } } }
+  const [classRules, setClassRules] = useState<Record<string, Record<string, ClassSubjectRule>>>({});
+
+  // Locked Slots Engine: { "10:00 - 10:20 (BREAK)": "TEA BREAK", "12:20 - 14:00 (LUNCH)": "LUNCH BREAK" }
+  const [lockedSlots, setLockedSlots] = useState<Record<string, string>>({
+    "10:00 - 10:20 (BREAK)": "TEA BREAK",
+    "12:20 - 14:00 (LUNCH)": "LUNCH BREAK",
+    "15:20 - 16:00 (DEBATE/SPORTS)": "DEBATES & COMPETITIONS",
   });
 
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
@@ -72,6 +79,7 @@ export default function UltimateAdminTerminal() {
   const [editTeacherName, setEditTeacherName] = useState("");
   const [editTeacherPassword, setEditTeacherPassword] = useState("");
   const [editTeacherRole, setEditTeacherRole] = useState("Subject Teacher");
+  const [editTeacherColor, setEditTeacherColor] = useState("#3B82F6");
   const [editTeacherClassMaster, setEditTeacherClassMaster] = useState("");
 
   const [printFilterClass, setPrintFilterClass] = useState("P1");
@@ -80,8 +88,24 @@ export default function UltimateAdminTerminal() {
     if (isAuthenticated) {
       loadSystemRecords();
       fetchAllTimetables();
+      initializeDefaultRules();
     }
   }, [isAuthenticated]);
+
+  const initializeDefaultRules = () => {
+    const defaultRules: Record<string, Record<string, ClassSubjectRule>> = {};
+    availableClasses.forEach((cls) => {
+      defaultRules[cls] = {
+        Mathematics: { daysPerWeek: 5, periodsPerDay: 1 },
+        Kinyarwanda: { daysPerWeek: 5, periodsPerDay: 1 },
+        English: { daysPerWeek: 5, periodsPerDay: 1 },
+        SET: { daysPerWeek: 3, periodsPerDay: 2 },
+        SRE: { daysPerWeek: 2, periodsPerDay: 1 },
+        French: { daysPerWeek: 2, periodsPerDay: 1 },
+      };
+    });
+    setClassRules(defaultRules);
+  };
 
   const fetchAllTimetables = async () => {
     try {
@@ -97,7 +121,7 @@ export default function UltimateAdminTerminal() {
       }
       setAllClassTimetables(timetablesMap);
     } catch (err) {
-      console.error("Error fetching all timetables:", err);
+      console.error("Error fetching timetables:", err);
     }
   };
 
@@ -120,10 +144,11 @@ export default function UltimateAdminTerminal() {
       await setDoc(doc(db, "timetables", cls), {
         class: cls,
         schedule: allClassTimetables[cls] || {},
-        subjectRules: subjectFrequencyRules,
+        classRules: classRules[cls] || {},
+        lockedSlots: lockedSlots,
         updatedAt: new Date().toISOString(),
       });
-      setFormFeedback(`Timetable for Class ${cls} successfully saved!`);
+      setFormFeedback(`Schedule and custom rules for ${cls} successfully saved!`);
     } catch (err) {
       setFormFeedback("Error saving timetable to database.");
     }
@@ -188,53 +213,6 @@ export default function UltimateAdminTerminal() {
     setLoading(false);
   };
 
-  const handleAddStudent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!studentForm.name.trim()) return;
-    try {
-      await addDoc(collection(db, "students"), {
-        name: studentForm.name.trim(),
-        class: studentForm.class,
-        registeredAt: new Date().toISOString(),
-      });
-      setStudentForm({ name: "", class: "P1" });
-      setFormFeedback("Student enrolled successfully!");
-      loadSystemRecords();
-    } catch (err) {
-      setFormFeedback("Failed to add student.");
-    }
-  };
-
-  const startEditStudent = (student: any) => {
-    setEditingStudentId(student.id);
-    setEditStudentName(student.name);
-    setEditStudentClass(student.class);
-  };
-
-  const handleUpdateStudent = async (id: string) => {
-    try {
-      await updateDoc(doc(db, "students", id), {
-        name: editStudentName.trim(),
-        class: editStudentClass,
-      });
-      setEditingStudentId(null);
-      setFormFeedback("Student record updated.");
-      loadSystemRecords();
-    } catch (err) {
-      setFormFeedback("Error updating student.");
-    }
-  };
-
-  const handleDeleteStudent = async (id: string) => {
-    if (!confirm("Delete student?")) return;
-    try {
-      await deleteDoc(doc(db, "students", id));
-      loadSystemRecords();
-    } catch (err) {
-      setFormFeedback("Error erasing student.");
-    }
-  };
-
   const handleAddTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!teacherForm.name.trim() || !teacherForm.email.trim()) return;
@@ -244,10 +222,11 @@ export default function UltimateAdminTerminal() {
         email: teacherForm.email.trim().toLowerCase(),
         password: teacherForm.password || "NewGen123",
         role: teacherForm.role,
+        color: teacherForm.color,
         classTeacherOf: teacherForm.classTeacherOf || null,
         allocations: [],
       });
-      setTeacherForm({ name: "", email: "", password: "", classTeacherOf: "", role: "Subject Teacher" });
+      setTeacherForm({ name: "", email: "", password: "", classTeacherOf: "", role: "Subject Teacher", color: "#3B82F6" });
       setFormFeedback("Faculty account provisioned!");
       loadSystemRecords();
     } catch (err) {
@@ -260,6 +239,7 @@ export default function UltimateAdminTerminal() {
     setEditTeacherName(teacher.name || "");
     setEditTeacherPassword(teacher.password || "");
     setEditTeacherRole(teacher.role || "Subject Teacher");
+    setEditTeacherColor(teacher.color || "#3B82F6");
     setEditTeacherClassMaster(teacher.classTeacherOf || "");
   };
 
@@ -269,45 +249,42 @@ export default function UltimateAdminTerminal() {
         name: editTeacherName.trim(),
         password: editTeacherPassword,
         role: editTeacherRole,
+        color: editTeacherColor,
         classTeacherOf: editTeacherClassMaster || null,
       });
       setEditingTeacherId(null);
-      setFormFeedback("Faculty credentials and permissions updated.");
+      setFormFeedback("Faculty record updated.");
       loadSystemRecords();
     } catch (err) {
       setFormFeedback("Error modifying faculty.");
     }
   };
 
-  const handleDeleteTeacher = async (id: string) => {
-    if (!confirm("Delete this teacher profile?")) return;
-    try {
-      await deleteDoc(doc(db, "teachers", id));
-      loadSystemRecords();
-    } catch (err) {
-      setFormFeedback("Error deleting teacher.");
-    }
+  const updateClassRule = (cls: string, subject: string, field: keyof ClassSubjectRule, value: number) => {
+    setClassRules((prev) => ({
+      ...prev,
+      [cls]: {
+        ...(prev[cls] || {}),
+        [subject]: {
+          ...(prev[cls]?.[subject] || { daysPerWeek: 1, periodsPerDay: 1 }),
+          [field]: value,
+        },
+      },
+    }));
   };
 
-  const handleAddAllocation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!allocationForm.teacherId) return;
-    try {
-      const teacherRef = doc(db, "teachers", allocationForm.teacherId);
-      await updateDoc(teacherRef, {
-        allocations: arrayUnion({
-          class: allocationForm.class,
-          subject: allocationForm.subject,
-        }),
-      });
-      setFormFeedback("Subject allocation added.");
-      loadSystemRecords();
-    } catch (err) {
-      setFormFeedback("Error setting allocation.");
-    }
+  const toggleLockedSlot = (slot: string, label: string) => {
+    setLockedSlots((prev) => {
+      const copy = { ...prev };
+      if (copy[slot]) {
+        delete copy[slot];
+      } else {
+        copy[slot] = label;
+      }
+      return copy;
+    });
   };
 
-  // Helper to count active days for a subject in a specific class
   const getActiveDaysForSubject = (cls: string, subject: string) => {
     const classData = allClassTimetables[cls] || {};
     let activeDays = 0;
@@ -324,23 +301,23 @@ export default function UltimateAdminTerminal() {
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 font-sans">
         <div className="w-full max-w-md bg-slate-800 border-2 border-slate-700 p-8 rounded-3xl shadow-2xl">
           <div className="text-center mb-6">
-            <span className="text-3xl"> 🔒 </span>
+            <span className="text-3xl">🔒</span>
             <h1 className="text-xl font-black text-white uppercase tracking-wider mt-3">Administrative Entry Guard</h1>
             <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">New Generation School Management System</p>
           </div>
           <form onSubmit={handleAdminLogin} className="space-y-4">
             <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Enter Access Password / Teacher Key Pin</label>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Access Password / Key Pin</label>
               <input
                 type="password"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full bg-slate-950 border border-slate-600 rounded-xl px-4 py-3 text-white font-mono text-center focus:border-blue-500 focus:outline-none transition-colors"
+                className="w-full bg-slate-950 border border-slate-600 rounded-xl px-4 py-3 text-white font-mono text-center focus:border-blue-500 focus:outline-none"
               />
             </div>
             {authError && <p className="text-center text-rose-500 text-[10px] font-black uppercase tracking-wide">{authError}</p>}
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-widest py-3.5 rounded-xl transition-all shadow-md">
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-widest py-3.5 rounded-xl shadow-md">
               Verify Credentials & Pass Entry
             </button>
           </form>
@@ -385,14 +362,11 @@ export default function UltimateAdminTerminal() {
               <button onClick={() => setActiveTab("overview")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "overview" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
                 Metrics Overview
               </button>
-              <button onClick={() => setActiveTab("students")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "students" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
-                Students Directory ({students.length})
-              </button>
               <button onClick={() => setActiveTab("teachers")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "teachers" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
-                Faculty & Roles ({teachers.length})
+                Faculty & Color Badges ({teachers.length})
               </button>
               <button onClick={() => setActiveTab("timetable")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "timetable" ? "border-slate-900 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
-                📅 Timetable Studio (3 Views & Rules)
+                📅 Timetable Control Panel & Rules Engine
               </button>
             </>
           )}
@@ -403,7 +377,7 @@ export default function UltimateAdminTerminal() {
 
         {/* OVERVIEW TAB */}
         {activeTab === "overview" && assignedClassMaster === null && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total Enrollment</span>
               <span className="text-2xl font-black text-slate-900 mt-1 block font-mono">{students.length} Learners</span>
@@ -419,97 +393,77 @@ export default function UltimateAdminTerminal() {
           </div>
         )}
 
-        {/* FACULTY & ROLES MANAGEMENT */}
+        {/* FACULTY & COLOR BADGES */}
         {activeTab === "teachers" && assignedClassMaster === null && (
           <div className="space-y-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm h-fit">
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-4 pb-2 border-b border-slate-100">Provision Faculty Profile & Privilege Level</h3>
-                <form onSubmit={handleAddTeacher} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <input type="text" value={teacherForm.name} onChange={(e) => setTeacherForm({ ...teacherForm, name: e.target.value })} placeholder="Teacher Name" className="w-full bg-slate-50 border p-2 text-sm rounded-xl uppercase" />
-                    <input type="email" value={teacherForm.email} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} placeholder="Email Address" className="w-full bg-slate-50 border p-2 text-sm rounded-xl" />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <input type="text" value={teacherForm.password} onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })} placeholder="Passcode Pin" className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-mono" />
-                    <select value={teacherForm.role} onChange={(e) => setTeacherForm({ ...teacherForm, role: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-black">
-                      {availableRoles.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </div>
-                  <select value={teacherForm.classTeacherOf} onChange={(e) => setTeacherForm({ ...teacherForm, classTeacherOf: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm rounded-xl font-black">
+            <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-4 pb-2 border-b">Provision Faculty Profile & Custom Color Badge</h3>
+              <form onSubmit={handleAddTeacher} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <input type="text" value={teacherForm.name} onChange={(e) => setTeacherForm({ ...teacherForm, name: e.target.value })} placeholder="Teacher Name" className="bg-slate-50 border p-2 text-sm rounded-xl uppercase font-bold" />
+                  <input type="email" value={teacherForm.email} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} placeholder="Email Address" className="bg-slate-50 border p-2 text-sm rounded-xl" />
+                  <input type="text" value={teacherForm.password} onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })} placeholder="Passcode Pin" className="bg-slate-50 border p-2 text-sm rounded-xl font-mono" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+                  <select value={teacherForm.role} onChange={(e) => setTeacherForm({ ...teacherForm, role: e.target.value })} className="bg-slate-50 border p-2 text-sm rounded-xl font-black">
+                    {availableRoles.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  <select value={teacherForm.classTeacherOf} onChange={(e) => setTeacherForm({ ...teacherForm, classTeacherOf: e.target.value })} className="bg-slate-50 border p-2 text-sm rounded-xl font-black">
                     <option value="">None / Floating Instructor</option>
                     {availableClasses.map((c) => <option key={c} value={c}>Class Master of {c}</option>)}
                   </select>
-                  <button type="submit" className="w-full bg-slate-900 text-white text-[10px] font-black uppercase py-3 rounded-xl">Save Faculty Member</button>
-                </form>
-              </div>
-
-              <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm h-fit">
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-4 pb-2 border-b border-slate-100">Map Subject Lesson Allocation</h3>
-                <form onSubmit={handleAddAllocation} className="space-y-4">
-                  <select value={allocationForm.teacherId} onChange={(e) => setAllocationForm({ ...allocationForm, teacherId: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm font-black rounded-xl">
-                    <option value="">-- Choose Instructor Document --</option>
-                    {teachers.map((t) => <option key={t.id} value={t.id}>{t.name || t.id}</option>)}
-                  </select>
-                  <div className="grid grid-cols-2 gap-4">
-                    <select value={allocationForm.class} onChange={(e) => setAllocationForm({ ...allocationForm, class: e.target.value })} className="bg-slate-50 border p-2 text-sm font-black rounded-xl">
-                      {availableClasses.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <select value={allocationForm.subject} onChange={(e) => setAllocationForm({ ...allocationForm, subject: e.target.value })} className="bg-slate-50 border p-2 text-sm font-black rounded-xl">
-                      {subjectsList.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase text-slate-500">Color Badge:</span>
+                    <input type="color" value={teacherForm.color} onChange={(e) => setTeacherForm({ ...teacherForm, color: e.target.value })} className="h-9 w-12 rounded border cursor-pointer" />
                   </div>
-                  <button type="submit" className="w-full bg-blue-600 text-white text-[10px] font-black uppercase py-3 rounded-xl">Bind Subject Mapping</button>
-                </form>
-              </div>
+                </div>
+                <button type="submit" className="w-full bg-slate-900 text-white text-[10px] font-black uppercase py-3 rounded-xl">Save Faculty Profile</button>
+              </form>
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="text-[9px] font-black text-slate-400 uppercase tracking-wider border-b bg-slate-50 h-10">
-                    <th className="p-4">Teacher Name / ID</th>
-                    <th className="p-4">Assigned Role</th>
-                    <th className="p-4">Class Master Assignment</th>
+                    <th className="p-4">Teacher Name</th>
+                    <th className="p-4">Role & Master Stream</th>
+                    <th className="p-4">Timetable Badge Color</th>
                     <th className="p-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-bold">
                   {teachers.map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-50/50">
+                    <tr key={t.id}>
                       <td className="p-4">
                         {editingTeacherId === t.id ? (
                           <input type="text" value={editTeacherName} onChange={(e) => setEditTeacherName(e.target.value)} className="border p-1 text-xs uppercase rounded" />
                         ) : (
                           <div>
                             <div className="font-black text-slate-900">{t.name || t.id}</div>
-                            <div className="text-[10px] text-slate-400">Passcode: <span className="font-mono text-blue-600">{t.password || "123456"}</span></div>
+                            <div className="text-[10px] text-slate-400 font-mono">PIN: {t.password || "123456"}</div>
                           </div>
                         )}
                       </td>
                       <td className="p-4">
-                        {editingTeacherId === t.id ? (
-                          <select value={editTeacherRole} onChange={(e) => setEditTeacherRole(e.target.value)} className="border p-1 text-xs rounded">
-                            {availableRoles.map((r) => <option key={r} value={r}>{r}</option>)}
-                          </select>
-                        ) : (
-                          <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 rounded-md text-[10px] font-black">{t.role || "Subject Teacher"}</span>
-                        )}
+                        <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded text-[10px] font-black mr-2">{t.role || "Subject Teacher"}</span>
+                        {t.classTeacherOf && <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-black">{t.classTeacherOf} MASTER</span>}
                       </td>
                       <td className="p-4">
-                        {t.classTeacherOf ? (
-                          <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[10px] font-black">{t.classTeacherOf} MASTER</span>
+                        {editingTeacherId === t.id ? (
+                          <input type="color" value={editTeacherColor} onChange={(e) => setEditTeacherColor(e.target.value)} className="h-7 w-10 rounded border" />
                         ) : (
-                          <span className="text-slate-300 text-[10px]">None</span>
+                          <div className="flex items-center gap-2">
+                            <span className="h-5 w-5 rounded-full border shadow-sm" style={{ backgroundColor: t.color || "#3B82F6" }} />
+                            <span className="font-mono text-[10px] text-slate-500">{t.color || "#3B82F6"}</span>
+                          </div>
                         )}
                       </td>
                       <td className="p-4 text-right space-x-1">
                         {editingTeacherId === t.id ? (
                           <button onClick={() => handleUpdateTeacher(t.id)} className="bg-emerald-600 text-white px-3 py-1 rounded text-[10px]">Save</button>
                         ) : (
-                          <button onClick={() => startEditTeacher(t)} className="text-[10px] font-black border px-2.5 py-1 rounded">Edit Privilege</button>
+                          <button onClick={() => startEditTeacher(t)} className="text-[10px] font-black border px-2 py-1 rounded">Edit</button>
                         )}
-                        <button onClick={() => handleDeleteTeacher(t.id)} className="text-[10px] font-black border text-rose-600 px-2 py-1 rounded">Delete</button>
                       </td>
                     </tr>
                   ))}
@@ -519,38 +473,41 @@ export default function UltimateAdminTerminal() {
           </div>
         )}
 
-        {/* TIMETABLE CONTROL STUDIO (3 VIEWS & RULE ENGINE) */}
+        {/* TIMETABLE CONTROL STUDIO */}
         {activeTab === "timetable" && assignedClassMaster === null && (
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b">
               <div>
-                <h3 className="font-black text-slate-900 uppercase text-sm tracking-wide">Timetable Control Studio</h3>
-                <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Switch views or configure subject frequency limits</p>
+                <h3 className="font-black text-slate-900 uppercase text-sm tracking-wide">Timetable Control Panel & Rules Engine</h3>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Manage 3 distinct views, custom class rules, and locked break/lunch periods</p>
               </div>
 
-              {/* Sub Tab View Switcher */}
-              <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+              {/* Sub Tab Switcher */}
+              <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl gap-1">
                 <button onClick={() => setTimetableSubTab("class")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "class" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
-                  1. Single Class Schedule
+                  1. Stream View
                 </button>
                 <button onClick={() => setTimetableSubTab("teacher")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "teacher" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
-                  2. Teacher Schedule
+                  2. Teacher Agenda
                 </button>
                 <button onClick={() => setTimetableSubTab("master")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "master" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
                   3. Master School Matrix
                 </button>
                 <button onClick={() => setTimetableSubTab("rules")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "rules" ? "bg-blue-600 text-white shadow-sm" : "text-slate-500"}`}>
-                  ⚙️ Frequency Rules
+                  ⚙️ Per-Class Rules
+                </button>
+                <button onClick={() => setTimetableSubTab("lockedSlots")} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${timetableSubTab === "lockedSlots" ? "bg-amber-600 text-white shadow-sm" : "text-slate-500"}`}>
+                  🔒 Locked Break / Lunch Slots
                 </button>
               </div>
             </div>
 
-            {/* VIEW 1: SINGLE CLASS TIMETABLE */}
+            {/* 1. SINGLE STREAM VIEW */}
             {timetableSubTab === "class" && (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-black uppercase text-slate-500">Select Stream:</span>
+                    <span className="text-xs font-black uppercase text-slate-500">Active Stream:</span>
                     <select value={selectedTimetableClass} onChange={(e) => setSelectedTimetableClass(e.target.value)} className="bg-slate-50 border p-2 text-xs font-black rounded-xl">
                       {availableClasses.map((c) => <option key={c} value={c}>Class {c}</option>)}
                     </select>
@@ -564,20 +521,20 @@ export default function UltimateAdminTerminal() {
                   <table className="w-full text-left border-collapse min-w-[700px]">
                     <thead>
                       <tr className="bg-slate-900 text-white text-[10px] font-black uppercase">
-                        <th className="p-3 border border-slate-800 w-36">Period / Time</th>
+                        <th className="p-3 border border-slate-800 w-36">Period / Slot</th>
                         {daysOfWeek.map((day) => <th key={day} className="p-3 border border-slate-800 text-center">{day}</th>)}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-xs font-bold">
                       {timeSlots.map((slot) => {
-                        const isLocked = slot.includes("BREAK") || slot.includes("LUNCH") || slot.includes("DEBATE");
+                        const lockedLabel = lockedSlots[slot];
                         return (
-                          <tr key={slot} className={isLocked ? "bg-amber-50/60" : "hover:bg-slate-50"}>
+                          <tr key={slot} className={lockedLabel ? "bg-amber-50/70" : "hover:bg-slate-50"}>
                             <td className="p-3 border font-mono text-[10px] text-slate-700 bg-slate-50">{slot}</td>
                             {daysOfWeek.map((day) => (
                               <td key={`${day}-${slot}`} className="p-2 border text-center">
-                                {isLocked ? (
-                                  <span className="text-[10px] font-black text-amber-800 uppercase tracking-wider">{slot.split(" ")[1]}</span>
+                                {lockedLabel ? (
+                                  <span className="text-[10px] font-black text-amber-800 uppercase tracking-wider">{lockedLabel}</span>
                                 ) : (
                                   <select
                                     value={allClassTimetables[selectedTimetableClass]?.[day]?.[slot] || ""}
@@ -601,7 +558,7 @@ export default function UltimateAdminTerminal() {
               </div>
             )}
 
-            {/* VIEW 2: INDIVIDUAL TEACHER TIMETABLE */}
+            {/* 2. TEACHER AGENDA WITH COLOR BADGES */}
             {timetableSubTab === "teacher" && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 pb-2">
@@ -609,6 +566,12 @@ export default function UltimateAdminTerminal() {
                   <select value={selectedTimetableTeacher} onChange={(e) => setSelectedTimetableTeacher(e.target.value)} className="bg-slate-50 border p-2 text-xs font-black rounded-xl">
                     {teachers.map((t) => <option key={t.id} value={t.id}>{t.name || t.id}</option>)}
                   </select>
+                  {selectedTeacherObj && (
+                    <div className="flex items-center gap-2 ml-4">
+                      <span className="h-4 w-4 rounded-full border shadow-sm" style={{ backgroundColor: selectedTeacherObj.color || "#3B82F6" }} />
+                      <span className="text-xs font-black uppercase text-slate-700">{selectedTeacherObj.role || "Teacher"}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto">
@@ -620,42 +583,53 @@ export default function UltimateAdminTerminal() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-xs font-bold">
-                      {timeSlots.map((slot) => (
-                        <tr key={slot}>
-                          <td className="p-3 border font-mono text-[10px] text-slate-600 bg-slate-50">{slot}</td>
-                          {daysOfWeek.map((day) => {
-                            // Find matching class where teacher is allocated for this subject
-                            let assignedClassSubj = "";
-                            availableClasses.forEach((cls) => {
-                              const scheduledSubj = allClassTimetables[cls]?.[day]?.[slot];
-                              if (scheduledSubj) {
-                                const isAssigned = selectedTeacherObj?.allocations?.some(
-                                  (a: any) => a.class === cls && a.subject === scheduledSubj
+                      {timeSlots.map((slot) => {
+                        const lockedLabel = lockedSlots[slot];
+                        return (
+                          <tr key={slot}>
+                            <td className="p-3 border font-mono text-[10px] text-slate-600 bg-slate-50">{slot}</td>
+                            {daysOfWeek.map((day) => {
+                              if (lockedLabel) {
+                                return (
+                                  <td key={`${day}-${slot}`} className="p-3 border text-center bg-amber-50">
+                                    <span className="text-[10px] font-black text-amber-800 uppercase">{lockedLabel}</span>
+                                  </td>
                                 );
-                                if (isAssigned) {
-                                  assignedClassSubj = `${scheduledSubj} (${cls})`;
-                                }
                               }
-                            });
-                            return (
-                              <td key={`${day}-${slot}`} className="p-3 border text-center">
-                                {assignedClassSubj ? (
-                                  <span className="bg-blue-100 text-blue-900 px-2 py-1 rounded text-[11px] font-black">{assignedClassSubj}</span>
-                                ) : (
-                                  <span className="text-slate-300 text-[10px]">-- Free --</span>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                              let assignedClassSubj = "";
+                              availableClasses.forEach((cls) => {
+                                const scheduledSubj = allClassTimetables[cls]?.[day]?.[slot];
+                                if (scheduledSubj) {
+                                  const isAssigned = selectedTeacherObj?.allocations?.some(
+                                    (a: any) => a.class === cls && a.subject === scheduledSubj
+                                  );
+                                  if (isAssigned) {
+                                    assignedClassSubj = `${scheduledSubj} (${cls})`;
+                                  }
+                                }
+                              });
+                              return (
+                                <td key={`${day}-${slot}`} className="p-3 border text-center">
+                                  {assignedClassSubj ? (
+                                    <span className="text-white px-2 py-1 rounded text-[11px] font-black shadow-sm inline-block" style={{ backgroundColor: selectedTeacherObj?.color || "#3B82F6" }}>
+                                      {assignedClassSubj}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300 text-[10px]">-- Free --</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {/* VIEW 3: MASTER SCHOOL TIMETABLE (SIDE-BY-SIDE) */}
+            {/* 3. MASTER SCHOOL MATRIX */}
             {timetableSubTab === "master" && (
               <div className="space-y-4">
                 <div className="overflow-x-auto">
@@ -670,26 +644,36 @@ export default function UltimateAdminTerminal() {
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-xs font-bold">
                       {daysOfWeek.map((day) =>
-                        timeSlots.map((slot) => (
-                          <tr key={`${day}-${slot}`} className="hover:bg-slate-50">
-                            <td className="p-2 border text-[10px] font-mono bg-slate-50 text-slate-700">
-                              <span className="font-black text-slate-900 block">{day}</span>
-                              {slot}
-                            </td>
-                            {availableClasses.map((cls) => {
-                              const subj = allClassTimetables[cls]?.[day]?.[slot];
-                              return (
-                                <td key={`${cls}-${day}-${slot}`} className="p-2 border text-center text-[10px]">
-                                  {subj ? (
-                                    <span className="bg-slate-800 text-white px-2 py-0.5 rounded font-black">{subj}</span>
-                                  ) : (
-                                    <span className="text-slate-300">--</span>
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))
+                        timeSlots.map((slot) => {
+                          const lockedLabel = lockedSlots[slot];
+                          return (
+                            <tr key={`${day}-${slot}`} className={lockedLabel ? "bg-amber-50" : "hover:bg-slate-50"}>
+                              <td className="p-2 border text-[10px] font-mono bg-slate-50 text-slate-700">
+                                <span className="font-black text-slate-900 block">{day}</span>
+                                {slot}
+                              </td>
+                              {availableClasses.map((cls) => {
+                                if (lockedLabel) {
+                                  return (
+                                    <td key={`${cls}-${day}-${slot}`} className="p-2 border text-center text-[9px] font-black text-amber-800 uppercase">
+                                      {lockedLabel}
+                                    </td>
+                                  );
+                                }
+                                const subj = allClassTimetables[cls]?.[day]?.[slot];
+                                return (
+                                  <td key={`${cls}-${day}-${slot}`} className="p-2 border text-center text-[10px]">
+                                    {subj ? (
+                                      <span className="bg-slate-800 text-white px-2 py-0.5 rounded font-black">{subj}</span>
+                                    ) : (
+                                      <span className="text-slate-300">--</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -697,58 +681,107 @@ export default function UltimateAdminTerminal() {
               </div>
             )}
 
-            {/* RULES & FREQUENCY CONTROL ENGINE */}
+            {/* ⚙️ PER-CLASS RULES CONTROL */}
             {timetableSubTab === "rules" && (
               <div className="space-y-6">
-                <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-xs space-y-1">
-                  <h4 className="font-black text-blue-900 uppercase">🧠 Subject Frequency Spreading Algorithm</h4>
-                  <p className="text-blue-800">
-                    Configure the required active teaching days per week for each subject. Before placing lessons, the scheduler ensures subjects meet their exact target distribution without cognitive overload.
-                  </p>
+                <div className="flex items-center justify-between pb-2 border-b">
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-slate-900">Per-Stream Subject Frequency Rules</h4>
+                    <p className="text-[10px] text-slate-500">Configure distinct target active days and double-period limits for each stream separately.</p>
+                  </div>
+                  <select value={selectedTimetableClass} onChange={(e) => setSelectedTimetableClass(e.target.value)} className="bg-slate-50 border p-2 text-xs font-black rounded-xl">
+                    {availableClasses.map((c) => <option key={c} value={c}>Rules for Stream {c}</option>)}
+                  </select>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-slate-50 p-4 rounded-xl border space-y-4">
-                    <h4 className="text-xs font-black uppercase text-slate-900">Configure Target Days / Week</h4>
-                    {subjectsList.map((subj) => (
-                      <div key={subj} className="flex justify-between items-center">
-                        <span className="text-xs font-bold">{subj}:</span>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="1"
-                            max="5"
-                            value={subjectFrequencyRules[subj] || 1}
-                            onChange={(e) => setSubjectFrequencyRules({ ...subjectFrequencyRules, [subj]: parseInt(e.target.value) || 1 })}
-                            className="w-16 border rounded p-1 text-center text-xs font-mono font-bold"
-                          />
-                          <span className="text-[10px] text-slate-500 font-bold">days / week</span>
+                    <h5 className="text-xs font-black uppercase text-slate-800">Target Settings for Class {selectedTimetableClass}</h5>
+                    {subjectsList.map((subj) => {
+                      const rule = classRules[selectedTimetableClass]?.[subj] || { daysPerWeek: 1, periodsPerDay: 1 };
+                      return (
+                        <div key={subj} className="p-3 bg-white rounded-lg border space-y-2">
+                          <span className="font-black text-xs text-slate-900">{subj}</span>
+                          <div className="grid grid-cols-2 gap-2 text-[11px]">
+                            <div>
+                              <label className="block text-slate-500 font-bold">Active Days/Wk:</label>
+                              <input
+                                type="number"
+                                min="1"
+                                max="5"
+                                value={rule.daysPerWeek}
+                                onChange={(e) => updateClassRule(selectedTimetableClass, subj, "daysPerWeek", parseInt(e.target.value) || 1)}
+                                className="w-full border rounded p-1 font-mono font-bold text-center"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-slate-500 font-bold">Period Block Type:</label>
+                              <select
+                                value={rule.periodsPerDay}
+                                onChange={(e) => updateClassRule(selectedTimetableClass, subj, "periodsPerDay", parseInt(e.target.value))}
+                                className="w-full border rounded p-1 font-bold text-center"
+                              >
+                                <option value={1}>Single Period (40m)</option>
+                                <option value={2}>Double Period (80m)</option>
+                              </select>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <div className="bg-slate-50 p-4 rounded-xl border space-y-3">
-                    <h4 className="text-xs font-black uppercase text-slate-900">Class {selectedTimetableClass} Frequency Audit</h4>
-                    <div className="space-y-2 text-xs">
-                      {subjectsList.map((subj) => {
-                        const target = subjectFrequencyRules[subj] || 0;
-                        const actual = getActiveDaysForSubject(selectedTimetableClass, subj);
-                        const isSatisfied = actual >= target;
-                        return (
-                          <div key={subj} className="flex justify-between items-center p-2 bg-white rounded border">
-                            <span className="font-bold">{subj}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-[11px] font-bold">{actual} / {target} Active Days</span>
-                              <span className={`text-[10px] px-2 py-0.5 rounded font-black ${isSatisfied ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
-                                {isSatisfied ? "✓ OK" : "Needs Allocation"}
-                              </span>
-                            </div>
+                    <h5 className="text-xs font-black uppercase text-slate-800">Class {selectedTimetableClass} Frequency Audit</h5>
+                    {subjectsList.map((subj) => {
+                      const target = classRules[selectedTimetableClass]?.[subj]?.daysPerWeek || 0;
+                      const actual = getActiveDaysForSubject(selectedTimetableClass, subj);
+                      const isSatisfied = actual >= target;
+                      return (
+                        <div key={subj} className="flex justify-between items-center p-2 bg-white rounded border">
+                          <span className="font-bold text-xs">{subj}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[11px] font-bold">{actual} / {target} Days</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded font-black ${isSatisfied ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                              {isSatisfied ? "✓ Satisfied" : "Unfulfilled"}
+                            </span>
                           </div>
-                        );
-                      })}
-                    </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* 🔒 LOCKED SLOTS CONTROL */}
+            {timetableSubTab === "lockedSlots" && (
+              <div className="space-y-4">
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-xs space-y-1">
+                  <h4 className="font-black text-amber-900 uppercase">🔒 School-Wide Fixed Slots Control</h4>
+                  <p className="text-amber-800">
+                    Toggle slots to lock or unlock them school-wide across all stream schedules (e.g., Morning Tea Break, Lunch, Friday Debates).
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {timeSlots.map((slot) => {
+                    const isLocked = Boolean(lockedSlots[slot]);
+                    return (
+                      <div key={slot} className={`p-3 border rounded-xl flex justify-between items-center ${isLocked ? "bg-amber-100/60 border-amber-300" : "bg-white"}`}>
+                        <div>
+                          <span className="font-mono text-xs font-bold block">{slot}</span>
+                          {isLocked && <span className="text-[10px] font-black text-amber-800 uppercase">{lockedSlots[slot]}</span>}
+                        </div>
+                        <button
+                          onClick={() => toggleLockedSlot(slot, slot.includes("DEBATE") ? "DEBATES & COMPETITIONS" : slot.includes("BREAK") ? "TEA BREAK" : "LUNCH BREAK")}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase ${isLocked ? "bg-amber-600 text-white" : "bg-slate-200 text-slate-700"}`}
+                        >
+                          {isLocked ? "Locked 🔒" : "Unlocked 🔓"}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

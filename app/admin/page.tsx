@@ -7,6 +7,23 @@ import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, arrayUnion } fr
 const availableClasses = ["P1", "P2", "P3", "P4", "P5", "P6"];
 const subjectsList = ["Mathematics", "Kinyarwanda", "English", "SET", "SRE", "French"];
 
+// DEFAULT TIME SLOT STRUCTURE
+const INITIAL_SLOTS = [
+  { id: 1, time: "08:00 - 08:40", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 2, time: "08:40 - 09:20", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 3, time: "09:20 - 10:00", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 4, time: "10:00 - 10:20", isAfterLunch: false, isBreak: true, label: "TEA BREAK" },
+  { id: 5, time: "10:20 - 11:00", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 6, time: "11:00 - 11:40", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 7, time: "11:40 - 12:20", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 8, time: "12:20 - 13:20", isAfterLunch: false, isBreak: true, label: "LUNCH BREAK" },
+  { id: 9, time: "13:20 - 14:00", isAfterLunch: true, isBreak: false, label: "" },
+  { id: 10, time: "14:00 - 14:40", isAfterLunch: true, isBreak: false, label: "" },
+  { id: 11, time: "14:40 - 15:20", isAfterLunch: true, isBreak: false, label: "" },
+];
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
 export default function UltimateAdminTerminal() {
   // Authentication Guard States
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -21,7 +38,7 @@ export default function UltimateAdminTerminal() {
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "printEngine">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "timetable" | "printEngine">("overview");
   
   // Creation Form Binder States
   const [studentForm, setStudentForm] = useState({ name: "", class: "P1" });
@@ -41,6 +58,13 @@ export default function UltimateAdminTerminal() {
   
   // Printing Selector Filters
   const [printFilterClass, setPrintFilterClass] = useState("P1");
+
+  // --- TIMETABLE MATRIX ENGINE STATES ---
+  const [selectedTimetableClass, setSelectedTimetableClass] = useState("P1");
+  const [isTimetableEditMode, setIsTimetableEditMode] = useState(false);
+  const [timeSlots, setTimeSlots] = useState(INITIAL_SLOTS);
+  // Matrix structure: { [class]: { [slotId]: { [day]: { subject: string, teacher: string } } } }
+  const [timetableData, setTimetableData] = useState<any>({});
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -71,15 +95,12 @@ export default function UltimateAdminTerminal() {
       
       tSnap.forEach((teacherDoc) => {
         const data = teacherDoc.data();
-        // Match user text directly against the actual database field value
         if (data.password && String(data.password).trim() === cleanPassword) {
           matchingTeacher = { id: teacherDoc.id, ...data };
         }
       });
-
       if (matchingTeacher) {
-        let lockedClass = "P4"; // Secure fallback value
-        // Flexibly read from classTeacherOf or the classes array fields
+        let lockedClass = "P4";
         if (matchingTeacher.classTeacherOf) {
           lockedClass = String(matchingTeacher.classTeacherOf).trim();
         } else if (matchingTeacher.classes && Array.isArray(matchingTeacher.classes) && matchingTeacher.classes.length > 0) {
@@ -90,10 +111,11 @@ export default function UltimateAdminTerminal() {
         
         setAssignedClassMaster(lockedClass);
         setPrintFilterClass(lockedClass);
+        setSelectedTimetableClass(lockedClass);
         setLoggedInUserTitle(`Tr. ${matchingTeacher.name || "INSTRUCTOR"} (${lockedClass} Master)`);
         setIsAuthenticated(true);
         setAuthError("");
-        setActiveTab("printEngine"); // Send teachers straight to the printing engine
+        setActiveTab("printEngine");
       } else {
         setAuthError("INVALID IDENTITY PASSCODE KEY");
       }
@@ -113,6 +135,142 @@ export default function UltimateAdminTerminal() {
       console.error("Database pull failure:", err);
     }
     setLoading(false);
+  };
+
+  // --- AUTOMATIC TIMETABLE GENERATION ALGORITHM ---
+  const handleAutoGenerateTimetable = () => {
+    const targetClass = selectedTimetableClass;
+    setFormFeedback(`Auto-generating optimized timetable for ${targetClass}...`);
+
+    // 1. Gather all teachers mapped to this targetClass
+    const classAllocations: { subject: string; teacherName: string; teacherId: string }[] = [];
+    teachers.forEach((t) => {
+      if (t.allocations && Array.isArray(t.allocations)) {
+        t.allocations.forEach((alloc: any) => {
+          if (alloc.class === targetClass) {
+            classAllocations.push({
+              subject: alloc.subject,
+              teacherName: t.name || t.id,
+              teacherId: t.id
+            });
+          }
+        });
+      }
+    });
+
+    if (classAllocations.length === 0) {
+      setFormFeedback(`Notice: No teacher allocations found for ${targetClass}. Assign subjects in Faculty Profiles first!`);
+    }
+
+    // 2. Initialize matrix for target class
+    const newClassGrid: any = {};
+    timeSlots.forEach((slot) => {
+      newClassGrid[slot.id] = {};
+      DAYS.forEach((day) => {
+        newClassGrid[slot.id][day] = { subject: "", teacher: "" };
+      });
+    });
+
+    // Subject pool helper
+    const getAvailablePool = () => {
+      if (classAllocations.length > 0) return [...classAllocations];
+      return subjectsList.map(s => ({ subject: s, teacherName: "Unassigned", teacherId: "none" }));
+    };
+
+    let pool = getAvailablePool();
+
+    DAYS.forEach((day) => {
+      let slotIndex = 0;
+      while (slotIndex < timeSlots.length) {
+        const slot = timeSlots[slotIndex];
+
+        if (slot.isBreak) {
+          slotIndex++;
+          continue;
+        }
+
+        // Rule Check Filters
+        let validSubjects = pool.filter((item) => {
+          // Rule 1: P1 French strictly AFTER LUNCH
+          if (targetClass === "P1" && item.subject === "French" && !slot.isAfterLunch) {
+            return false;
+          }
+          // Rule 2: P2 Kinyarwanda strictly AFTER LUNCH
+          if (targetClass === "P2" && item.subject === "Kinyarwanda" && !slot.isAfterLunch) {
+            return false;
+          }
+          return true;
+        });
+
+        if (validSubjects.length === 0) {
+          validSubjects = pool; // Fallback if constrained pool is exhausted
+        }
+
+        const selected = validSubjects[Math.floor(Math.random() * validSubjects.length)];
+
+        if (selected) {
+          newClassGrid[slot.id][day] = {
+            subject: selected.subject,
+            teacher: selected.teacherName
+          };
+
+          // REINFORCE DOUBLE PERIOD RULE:
+          // Try to give a consecutive period if the next slot exists and is not a break
+          const nextSlot = timeSlots[slotIndex + 1];
+          if (
+            nextSlot &&
+            !nextSlot.isBreak &&
+            !(targetClass === "P1" && selected.subject === "French" && !nextSlot.isAfterLunch) &&
+            !(targetClass === "P2" && selected.subject === "Kinyarwanda" && !nextSlot.isAfterLunch)
+          ) {
+            newClassGrid[nextSlot.id][day] = {
+              subject: selected.subject,
+              teacher: selected.teacherName
+            };
+            slotIndex++; // Skip next slot as it's now paired
+          }
+        }
+
+        slotIndex++;
+      }
+    });
+
+    setTimetableData((prev: any) => ({
+      ...prev,
+      [targetClass]: newClassGrid
+    }));
+
+    setFormFeedback(`Automated timetable generated successfully for ${targetClass}!`);
+  };
+
+  const handleCellChange = (slotId: number, day: string, field: "subject" | "teacher", value: string) => {
+    setTimetableData((prev: any) => {
+      const classGrid = prev[selectedTimetableClass] || {};
+      const slotGrid = classGrid[slotId] || {};
+      const dayGrid = slotGrid[day] || { subject: "", teacher: "" };
+
+      return {
+        ...prev,
+        [selectedTimetableClass]: {
+          ...classGrid,
+          [slotId]: {
+            ...slotGrid,
+            [day]: {
+              ...dayGrid,
+              [field]: value
+            }
+          }
+        }
+      };
+    });
+  };
+
+  const handleTimeSlotChange = (slotId: number, newTime: string) => {
+    setTimeSlots(prev => prev.map(s => s.id === slotId ? { ...s, time: newTime } : s));
+  };
+
+  const handleBreakLabelChange = (slotId: number, newLabel: string) => {
+    setTimeSlots(prev => prev.map(s => s.id === slotId ? { ...s, label: newLabel } : s));
   };
 
   // --- STUDENT CRUD ---
@@ -343,6 +501,9 @@ export default function UltimateAdminTerminal() {
               <button onClick={() => setActiveTab("teachers")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "teachers" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
                 Faculty Profiles & Roles ({teachers.length})
               </button>
+              <button onClick={() => setActiveTab("timetable")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "timetable" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
+                📅 Timetable Engine
+              </button>
             </>
           )}
           <button onClick={() => setActiveTab("printEngine")} className={`px-5 py-3 font-black text-xs uppercase tracking-wider border-b-4 transition-all ${activeTab === "printEngine" || assignedClassMaster !== null ? "border-slate-900 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}>
@@ -445,7 +606,7 @@ export default function UltimateAdminTerminal() {
                 <form onSubmit={handleAddAllocation} className="space-y-4">
                   <select value={allocationForm.teacherId} onChange={(e) => setAllocationForm({ ...allocationForm, teacherId: e.target.value })} className="w-full bg-slate-50 border p-2 text-sm font-black rounded-xl">
                     <option value="">-- Choose Instructor Document --</option>
-                    {teachers.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}
+                    {teachers.map(t => <option key={t.id} value={t.id}>{t.name || t.id}</option>)}
                   </select>
                   <div className="grid grid-cols-2 gap-4">
                     <select value={allocationForm.class} onChange={(e) => setAllocationForm({ ...allocationForm, class: e.target.value })} className="bg-slate-50 border p-2 text-sm font-black rounded-xl">
@@ -480,8 +641,8 @@ export default function UltimateAdminTerminal() {
                           </div>
                         ) : (
                           <div>
-                            <div className="font-black text-slate-900">{t.id}</div>
-                            <div className="text-[10px] text-slate-400">Name: <span className="uppercase text-slate-700 font-bold">{t.name || "Not Configured"}</span> | Passcode Key: <span className="text-blue-600 font-mono font-bold">{t.password || "123456"}</span></div>
+                            <div className="font-black text-slate-900">{t.name || t.id}</div>
+                            <div className="text-[10px] text-slate-400">Email: <span className="uppercase text-slate-700 font-bold">{t.email || t.id}</span> | Passcode Key: <span className="text-blue-600 font-mono font-bold">{t.password || "123456"}</span></div>
                           </div>
                         )}
                       </td>
@@ -507,7 +668,147 @@ export default function UltimateAdminTerminal() {
           </div>
         )}
 
-        {/* TAB 4: PRINT ENGINE HUB */}
+        {/* TAB 4: AUTOMATIC & EDITABLE TIMETABLE ENGINE */}
+        {activeTab === "timetable" && assignedClassMaster === null && (
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
+              <div>
+                <h3 className="font-black text-slate-900 uppercase text-sm tracking-wide">Automated Timetable Terminal</h3>
+                <p className="text-[11px] text-slate-500">P1 French & P2 Kinyarwanda are locked to afternoon slots. Double periods are automatically reinforced.</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <select
+                  value={selectedTimetableClass}
+                  onChange={(e) => setSelectedTimetableClass(e.target.value)}
+                  className="bg-slate-50 border border-slate-300 p-2 text-xs font-black rounded-xl"
+                >
+                  {availableClasses.map(c => <option key={c} value={c}>Class Stream: {c}</option>)}
+                </select>
+
+                <button
+                  onClick={handleAutoGenerateTimetable}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm transition-all"
+                >
+                  ⚡ Auto-Generate ({selectedTimetableClass})
+                </button>
+
+                <button
+                  onClick={() => setIsTimetableEditMode(!isTimetableEditMode)}
+                  className={`text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all border ${
+                    isTimetableEditMode
+                      ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300"
+                  }`}
+                >
+                  {isTimetableEditMode ? "🔒 Lock Grid" : "✏️ Enable Master Edit Mode"}
+                </button>
+              </div>
+            </div>
+
+            {/* TIMETABLE GRID TABLE */}
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left border-collapse font-sans text-xs">
+                <thead>
+                  <tr className="bg-slate-900 text-white font-black uppercase text-[10px] tracking-wider">
+                    <th className="p-3 border-r border-slate-800 min-w-[140px]">PERIOD / SLOT</th>
+                    {DAYS.map(day => (
+                      <th key={day} className="p-3 border-r border-slate-800 min-w-[130px] text-center">{day}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {timeSlots.map((slot) => {
+                    const currentGrid = timetableData[selectedTimetableClass] || {};
+                    const slotData = currentGrid[slot.id] || {};
+
+                    if (slot.isBreak) {
+                      return (
+                        <tr key={slot.id} className="bg-amber-50/70 border-b border-amber-200 font-bold">
+                          <td className="p-3 border-r border-amber-200 font-mono text-slate-600">
+                            {isTimetableEditMode ? (
+                              <input
+                                type="text"
+                                value={slot.time}
+                                onChange={(e) => handleTimeSlotChange(slot.id, e.target.value)}
+                                className="bg-white border rounded px-1.5 py-0.5 text-xs font-mono w-full"
+                              />
+                            ) : (
+                              slot.time
+                            )}
+                          </td>
+                          <td colSpan={5} className="p-3 text-center text-amber-800 font-black tracking-widest uppercase">
+                            {isTimetableEditMode ? (
+                              <input
+                                type="text"
+                                value={slot.label}
+                                onChange={(e) => handleBreakLabelChange(slot.id, e.target.value)}
+                                className="bg-white border text-center rounded px-2 py-0.5 text-xs font-black uppercase text-amber-900"
+                              />
+                            ) : (
+                              `-- ${slot.label} --`
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr key={slot.id} className="hover:bg-slate-50/50">
+                        <td className="p-3 border-r border-slate-200 font-mono font-bold text-slate-700">
+                          {isTimetableEditMode ? (
+                            <input
+                              type="text"
+                              value={slot.time}
+                              onChange={(e) => handleTimeSlotChange(slot.id, e.target.value)}
+                              className="bg-white border border-slate-300 rounded px-1.5 py-0.5 text-xs font-mono w-full"
+                            />
+                          ) : (
+                            slot.time
+                          )}
+                        </td>
+
+                        {DAYS.map((day) => {
+                          const cell = slotData[day] || { subject: "", teacher: "" };
+
+                          return (
+                            <td key={day} className="p-2 border-r border-slate-200 text-center">
+                              {isTimetableEditMode ? (
+                                <div className="space-y-1">
+                                  <select
+                                    value={cell.subject}
+                                    onChange={(e) => handleCellChange(slot.id, day, "subject", e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-300 rounded p-1 text-xs font-bold"
+                                  >
+                                    <option value="">-- Free --</option>
+                                    {subjectsList.map(s => <option key={s} value={s}>{s}</option>)}
+                                  </select>
+                                </div>
+                              ) : (
+                                <div>
+                                  {cell.subject ? (
+                                    <>
+                                      <div className="font-black text-slate-900 uppercase text-[11px]">{cell.subject}</div>
+                                      {cell.teacher && <div className="text-[9px] text-blue-600 font-bold">{cell.teacher}</div>}
+                                    </>
+                                  ) : (
+                                    <span className="text-slate-300 font-mono text-[10px]">-- Free --</span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: PRINT ENGINE HUB */}
         {(activeTab === "printEngine" || assignedClassMaster !== null) && (
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
             <div className="flex justify-between items-center pb-4 border-b">
@@ -518,7 +819,6 @@ export default function UltimateAdminTerminal() {
                 </select>
               )}
             </div>
-
             <div className="divide-y divide-slate-100">
               {students.filter(s => s.class === activeFilteringClass).length === 0 ? (
                 <p className="text-center py-8 text-xs font-bold text-slate-400 uppercase tracking-wider">No student index entries discovered contextually linked to Stream {activeFilteringClass}</p>
@@ -527,7 +827,6 @@ export default function UltimateAdminTerminal() {
                   <div key={st.id} className="p-4 flex justify-between items-center hover:bg-slate-50/30 transition-colors">
                     <span className="font-black uppercase text-sm text-slate-900 tracking-wide">{st.name}</span>
                     
-                    {/* FIXED LINK INTERPOLATION ROUTING LINE */}
                     <Link href={`/reports?studentId=${st.id}&class=${activeFilteringClass}`} target="_blank">
                       <span className="bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-600 hover:text-white transition-all text-[10px] font-black uppercase px-4 py-2 rounded-xl tracking-wider cursor-pointer">
                         Preview & Print Report Card 🖨️
@@ -543,4 +842,3 @@ export default function UltimateAdminTerminal() {
     </div>
   );
 }
-

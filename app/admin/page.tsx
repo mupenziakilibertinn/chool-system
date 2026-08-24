@@ -12,14 +12,16 @@ const INITIAL_SLOTS = [
   { id: 1, time: "08:00 - 08:40", isAfterLunch: false, isBreak: false, label: "" },
   { id: 2, time: "08:40 - 09:20", isAfterLunch: false, isBreak: false, label: "" },
   { id: 3, time: "09:20 - 10:00", isAfterLunch: false, isBreak: false, label: "" },
-  { id: 4, time: "10:00 - 10:20", isAfterLunch: false, isBreak: true, label: "TEA BREAK" },
-  { id: 5, time: "10:20 - 11:00", isAfterLunch: false, isBreak: false, label: "" },
-  { id: 6, time: "11:00 - 11:40", isAfterLunch: false, isBreak: false, label: "" },
-  { id: 7, time: "11:40 - 12:20", isAfterLunch: false, isBreak: false, label: "" },
-  { id: 8, time: "12:20 - 13:20", isAfterLunch: false, isBreak: true, label: "LUNCH BREAK" },
-  { id: 9, time: "13:20 - 14:00", isAfterLunch: true, isBreak: false, label: "" },
-  { id: 10, time: "14:00 - 14:40", isAfterLunch: true, isBreak: false, label: "" },
-  { id: 11, time: "14:40 - 15:20", isAfterLunch: true, isBreak: false, label: "" },
+  { id: 4, time: "10:00 - 10:15", isAfterLunch: false, isBreak: true, label: "MORNING BREAK" },
+  { id: 5, time: "10:15 - 10:55", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 6, time: "10:55 - 11:35", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 7, time: "11:35 - 12:15", isAfterLunch: false, isBreak: false, label: "" },
+  { id: 8, time: "12:15 - 13:35", isAfterLunch: false, isBreak: true, label: "LUNCH" },
+  { id: 9, time: "13:35 - 14:15", isAfterLunch: true, isBreak: false, label: "" },
+  { id: 10, time: "14:15 - 14:55", isAfterLunch: true, isBreak: false, label: "" },
+  { id: 11, time: "14:55 - 15:05", isAfterLunch: true, isBreak: false, label:"EVENING BREAK"},
+  { id: 12, time: "15:05 - 15:45", isAfterLunch: true, isBreak: false, label: "" },
+  { id: 12, time: "15:45 - 16:25", isAfterLunch: true, isBreak: false, label: "" },
 ];
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -78,7 +80,7 @@ export default function UltimateAdminTerminal() {
     const cleanPassword = adminPassword.trim();
     
     // 1. Master Administration Passwords
-    if (cleanPassword === "AdminNG2026" || cleanPassword === "ngschoolowner") {
+    if (cleanPassword === "Mupenzi2004" || cleanPassword === "ngschoolowner") {
       setAssignedClassMaster(null);
       setLoggedInUserTitle("Master Administrator");
       setIsAuthenticated(true);
@@ -215,7 +217,7 @@ export default function UltimateAdminTerminal() {
           };
 
           // REINFORCE DOUBLE PERIOD RULE:
-          // Try to give a consecutive period if the next slot exists and is not a break
+          // Try to give only 2 consecutive period if the next slot exists and is not a break
           const nextSlot = timeSlots[slotIndex + 1];
           if (
             nextSlot &&
@@ -301,7 +303,7 @@ export default function UltimateAdminTerminal() {
   const handleUpdateStudent = async (id: string) => {
     if (!editStudentName.trim()) return;
     try {
-      setFormFeedback("Updating student name/class details...");
+      setFormFeedback("Updating student details...");
       await updateDoc(doc(db, "students", id), {
         name: editStudentName.trim(),
         class: editStudentClass
@@ -701,7 +703,7 @@ export default function UltimateAdminTerminal() {
                       : "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300"
                   }`}
                 >
-                  {isTimetableEditMode ? "🔒 Lock Grid" : "✏️ Enable Master Edit Mode"}
+                  {isTimetableEditMode ? "🔒 Lock Grid" : "✏️ Enable Edit Mode"}
                 </button>
               </div>
             </div>

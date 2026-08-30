@@ -24,25 +24,3 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
-/* This part tells the printer what to do */
-@media print {
-  /* 1. Hide the dashboard buttons and menus so they don't waste ink */
-  .no-print {
-    display: none !important;
-  }
-
-  /* 2. Show the report cards (which are hidden on the screen) */
-  .report-only {
-    display: block !important;
-  }
-
-  /* 3. Start a new page for every student */
-  .page-break {
-    page-break-after: always;
-  }
-}
-
-/* This part hides the "Paper Preview" from your screen so it doesn't look messy while you are working */
-.report-only {
-  display: none;
-}

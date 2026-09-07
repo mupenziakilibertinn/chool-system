@@ -184,7 +184,7 @@ export default function RegistreNominatifPage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="bg-slate-100 border rounded-xl px-3 py-2 text-xs font-black focus:outline-none">
-            {availableClasses.map(c => <option key={c} value={c}>{c} Class Stream</option>)}
+            {availableClasses.map(c => <option key={`class-opt-${c}`} value={c}>{c} Class Stream</option>)}
           </select>
 
           <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="bg-slate-100 border rounded-xl px-3 py-2 text-xs font-black focus:outline-none">
@@ -246,7 +246,7 @@ export default function RegistreNominatifPage() {
                   {subjectsList.map((sub) => {
                     if (selectedClass === "P6" && sub === "French") return null;
                     return (
-                      <th key={sub} className="border border-slate-400 px-2 py-1 uppercase text-[9px] font-black">
+                      <th key={`th-sub-${sub}`} className="border border-slate-400 px-2 py-1 uppercase text-[9px] font-black">
                         {sub}
                       </th>
                     );
@@ -255,7 +255,7 @@ export default function RegistreNominatifPage() {
               </thead>
               <tbody className="divide-y divide-slate-300 font-bold uppercase text-slate-800">
                 {registryData.map((student, index) => (
-                  <tr key={student.id} className="h-9 hover:bg-slate-50/50 transition-colors">
+                  <tr key={`reg-row-${student.id}-${index}`} className="h-9 hover:bg-slate-50/50 transition-colors">
                     <td className="border border-slate-300 px-3 py-1 text-left font-mono text-[10px] text-slate-400">{index + 1}</td>
                     <td className="border border-slate-300 px-4 py-1 text-left font-black tracking-wide text-slate-900 max-w-xs truncate">
                       {student.name}
@@ -287,7 +287,7 @@ export default function RegistreNominatifPage() {
                       if (selectedClass === "P6" && sub === "French") return null;
                       const scoreStr = student.marks[sub] || "-";
                       return (
-                        <td key={sub} className="border border-slate-300 px-2 py-1 font-mono text-[11px]">
+                        <td key={`cell-${student.id}-${sub}`} className="border border-slate-300 px-2 py-1 font-mono text-[11px]">
                           <span className={scoreStr === "-" ? "text-slate-300" : "text-slate-900"}>
                             {scoreStr}
                           </span>
@@ -385,7 +385,7 @@ export default function RegistreNominatifPage() {
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-bold">
                         {parsedDrafts.map((draft, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50">
+                          <tr key={`draft-row-${idx}`} className="hover:bg-slate-50">
                             <td className="p-3 text-slate-400 font-mono">{idx + 1}</td>
                             <td className="p-3">
                               <input

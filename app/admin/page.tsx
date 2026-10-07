@@ -486,7 +486,7 @@ export default function UltimateAdminTerminal() {
 
       {formFeedback && (
         <div className="bg-slate-900 text-slate-100 font-mono text-center py-2 text-[10px] font-black uppercase tracking-widest animate-pulse">
-          ⚡  System Node Notice: {formFeedback}
+          ⚡  System Notice: {formFeedback}
         </div>
       )}
 
@@ -844,3 +844,4 @@ export default function UltimateAdminTerminal() {
     </div>
   );
 }
+

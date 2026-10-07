@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "../../lib/firebase";
 import { collection, getDocs, doc, setDoc, query, where } from "firebase/firestore";
 import { useRouter } from "next/navigation";
@@ -16,9 +16,12 @@ export default function MarksEntryPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Dedicated States for Co-Curricular Tracking Module
   const [coCurricularMarks, setCoCurricularMarks] = useState<any>({});
   const [coCurricularLoading, setCoCurricularLoading] = useState(false);
+
+  // References to input elements grid: inputsRef.current[studentIdx][cellKey]
+  const inputsRef = useRef<Record<number, Record<string, HTMLInputElement | null>>>({});
+  const coInputsRef = useRef<Record<number, Record<string, HTMLInputElement | null>>>({});
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -45,7 +48,7 @@ export default function MarksEntryPage() {
           setSelectedAlloc((match as any).allocations[0]);
         }
       } else {
-        alert("    🚫    🚫  ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
+        alert("🚫 ACCESS REJECTED: This email address is not permitted in your dashboard lists.");
         localStorage.removeItem("teacherEmail");
       }
     } catch (err) {
@@ -113,7 +116,7 @@ export default function MarksEntryPage() {
     if (value !== "") {
       const numValue = Number(value);
       if (numValue > maxMarkValue || numValue < 0) {
-        setValidationError(`    ❌    ❌    ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
+        setValidationError(`❌ ERROR: Maximum score limit for this section is ${maxMarkValue}. Please check values.`);
         return;
       }
     }
@@ -131,7 +134,7 @@ export default function MarksEntryPage() {
     if (value !== "") {
       const numValue = Number(value);
       if (numValue > 5 || numValue < 0) {
-        setValidationError(`    ❌    ❌    ERROR: Maximum score limit for Co-Curricular sections is 5 marks.`);
+        setValidationError(`❌ ERROR: Maximum score limit for Co-Curricular sections is 5 marks.`);
         return;
       }
     }
@@ -144,6 +147,32 @@ export default function MarksEntryPage() {
     }));
   };
 
+  // Direct Key Matrix Handler using Direct Ref Focus
+  const handleCellKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    studentIdx: number,
+    cellKey: string,
+    isCoCurricular = false
+  ) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const direction = e.shiftKey ? -1 : 1;
+      const targetIdx = studentIdx + direction;
+
+      if (targetIdx >= 0 && targetIdx < students.length) {
+        const targetRefMap = isCoCurricular ? coInputsRef.current : inputsRef.current;
+        const targetInput = targetRefMap[targetIdx]?.[cellKey];
+
+        if (targetInput) {
+          targetInput.focus();
+          targetInput.select();
+        }
+      }
+    }
+  };
+
   const handleExcelPaste = (e: React.ClipboardEvent<HTMLInputElement>, studentIndex: number, assessmentKey: string) => {
     e.preventDefault();
     setValidationError(null);
@@ -153,7 +182,7 @@ export default function MarksEntryPage() {
     if (rows.length > 0) {
       const hasBadValues = rows.some((val) => val !== "" && (Number(val) > maxMarkValue || Number(val) < 0));
       if (hasBadValues) {
-        setValidationError(`    🚫    🚫  PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
+        setValidationError(`🚫 PASTE BLOCKED: One or more values in your Excel column exceed the maximum limit of ${maxMarkValue} marks!`);
         return;
       }
       const updatedMarks = { ...marks };
@@ -178,7 +207,7 @@ export default function MarksEntryPage() {
     if (rows.length > 0) {
       const hasBadValues = rows.some((val) => val !== "" && (Number(val) > 5 || Number(val) < 0));
       if (hasBadValues) {
-        setValidationError(`    🚫    🚫  PASTE BLOCKED: One or more values inside your Co-Curricular column exceeds the maximum allowed threshold of 5 marks.`);
+        setValidationError(`🚫 PASTE BLOCKED: One or more values inside your Co-Curricular column exceeds the maximum allowed threshold of 5 marks.`);
         return;
       }
       const updatedCoMarks = { ...coCurricularMarks };
@@ -202,17 +231,13 @@ export default function MarksEntryPage() {
       const score = marks[student.id]?.[`${selectedTerm}_${assessmentKey}`];
       return score !== undefined && score !== null ? String(score) : "";
     });
-    const columnTextTextareaFormat = targetScores.join("\n");
+    const columnText = targetScores.join("\n");
     if (actionType === "copy" || actionType === "cut") {
-      if (!navigator?.clipboard) {
-        alert("Clipboard system framework interface is unavailable on this unsecured network layer connection.");
-        return;
-      }
       try {
-        await navigator.clipboard.writeText(columnTextTextareaFormat);
-        alert(`    📋    📋  Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your system clipboard! Ready for Excel.`);
+        await navigator.clipboard.writeText(columnText);
+        alert(`📋 Column marks successfully ${actionType === "cut" ? "cut" : "copied"} to your clipboard!`);
       } catch (err) {
-        alert("Clipboard hardware access permission failed or timed out.");
+        alert("Clipboard action failed.");
         return;
       }
     }
@@ -235,17 +260,13 @@ export default function MarksEntryPage() {
       const score = coCurricularMarks[student.id]?.[storageKey];
       return score !== undefined && score !== null ? String(score) : "";
     });
-    const columnTextTextareaFormat = targetScores.join("\n");
+    const columnText = targetScores.join("\n");
     if (actionType === "copy" || actionType === "cut") {
-      if (!navigator?.clipboard) {
-        alert("Clipboard system framework interface is unavailable on this connection layer setup.");
-        return;
-      }
       try {
-        await navigator.clipboard.writeText(columnTextTextareaFormat);
-        alert(`  📋  Co-Curricular column [${label}] successfully ${actionType === "cut" ? "cut" : "copied"} to clipboard!`);
+        await navigator.clipboard.writeText(columnText);
+        alert(`📋 Co-Curricular column [${label}] successfully ${actionType === "cut" ? "cut" : "copied"}!`);
       } catch (err) {
-        alert("Clipboard hardware access permission failed.");
+        alert("Clipboard action failed.");
         return;
       }
     }
@@ -288,39 +309,9 @@ export default function MarksEntryPage() {
     };
   };
 
-  // Robust Production-Safe Keyboard Navigation Handler
-  const handleKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>,
-    studentIndex: number,
-    cellKey: string,
-    isCoCurricular = false
-  ) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const direction = e.shiftKey ? -1 : 1;
-      const targetIndex = studentIndex + direction;
-
-      if (targetIndex < 0 || targetIndex >= students.length) return;
-
-      const selector = isCoCurricular
-        ? `input[data-co-idx="${targetIndex}"][data-co-cell="${cellKey}"]`
-        : `input[data-student-idx="${targetIndex}"][data-assessment="${cellKey}"]`;
-
-      requestAnimationFrame(() => {
-        const targetInput = document.querySelector(selector) as HTMLInputElement | null;
-        if (targetInput) {
-          targetInput.focus();
-          targetInput.select();
-        }
-      });
-    }
-  };
-
   const handleSaveMarks = async () => {
     if (validationError) {
-      alert("    ⚠️    ⚠️  Cannot save marks sheet while configuration errors are present on screen.");
+      alert("⚠️ Cannot save marks sheet while configuration errors are present on screen.");
       return;
     }
     setLoading(true);
@@ -332,16 +323,16 @@ export default function MarksEntryPage() {
           await setDoc(docRef, studentMarkData, { merge: true });
         })
       );
-      alert("    ✅    ✅    MARKS PORTAL SAVED SUCCESSFULLY!");
+      alert("✅ MARKS PORTAL SAVED SUCCESSFULLY!");
     } catch (err) {
-      alert("Failed to secure marks matrix changes.");
+      alert("Failed to save marks.");
     }
     setLoading(false);
   };
 
   const handleSaveCoCurricular = async () => {
     if (validationError) {
-      alert("    ⚠️    ⚠️  Fix processing marks validation conflicts before saving.");
+      alert("⚠️ Fix validation errors before saving.");
       return;
     }
     setCoCurricularLoading(true);
@@ -353,9 +344,9 @@ export default function MarksEntryPage() {
           await setDoc(docRef, studentCoData, { merge: true });
         })
       );
-      alert("    🌟    🌟  CO-CURRICULAR ASSESSMENTS REPORT LOCK COMPLETED!");
+      alert("🌟 CO-CURRICULAR ASSESSMENTS SAVED!");
     } catch (err) {
-      alert("Failed to register co-curricular metrics.");
+      alert("Failed to save co-curricular metrics.");
     }
     setCoCurricularLoading(false);
   };
@@ -418,7 +409,7 @@ export default function MarksEntryPage() {
                 onClick={() => router.push(`/reports?class=${teacherData.classTeacherOf}`)}
                 className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg uppercase text-[9px] tracking-wider transition-all"
               >
-                Observe My Class Reports    📋    📋  (Stream {teacherData.classTeacherOf})
+                Observe My Class Reports (Stream {teacherData.classTeacherOf})
               </button>
             )}
             <button
@@ -483,7 +474,7 @@ export default function MarksEntryPage() {
                   validationError ? "bg-gray-400 cursor-not-allowed" : "bg-green-700 hover:bg-green-800"
                 }`}
               >
-                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS     💾    💾  "}
+                {loading ? "SAVING..." : "COMMIT & LOCK TERM MARKS 💾"}
               </button>
             </div>
             {validationError && (
@@ -508,7 +499,6 @@ export default function MarksEntryPage() {
                               type="button"
                               onClick={() => handleColumnAction(key, "copy")}
                               className="bg-blue-50 border text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-100 transition-colors"
-                              title="Copy entire column array"
                             >
                               COPY
                             </button>
@@ -516,7 +506,6 @@ export default function MarksEntryPage() {
                               type="button"
                               onClick={() => handleColumnAction(key, "cut")}
                               className="bg-amber-50 border text-amber-700 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors"
-                              title="Cut column array"
                             >
                               CUT
                             </button>
@@ -528,7 +517,6 @@ export default function MarksEntryPage() {
                                 }
                               }}
                               className="bg-rose-50 border text-rose-700 px-1 py-0.5 rounded hover:bg-rose-100 transition-colors"
-                              title="Wipe entire data collection column"
                             >
                               CLEAR
                             </button>
@@ -558,10 +546,12 @@ export default function MarksEntryPage() {
                                 min={0}
                                 max={dynamicMax}
                                 value={rawVal ?? ""}
-                                data-student-idx={idx}
-                                data-assessment={key}
+                                ref={(el) => {
+                                  if (!inputsRef.current[idx]) inputsRef.current[idx] = {};
+                                  inputsRef.current[idx][key] = el;
+                                }}
                                 onChange={(e) => handleMarkChange(student.id, key, e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, idx, key, false)}
+                                onKeyDown={(e) => handleCellKeyDown(e, idx, key, false)}
                                 onPaste={(e) => handleExcelPaste(e, idx, key)}
                                 className={`w-16 border-2 p-1 text-center font-black rounded-lg transition-all ${
                                   isInvalid
@@ -579,7 +569,7 @@ export default function MarksEntryPage() {
                   })}
                   <tr className="bg-blue-50/50 text-[9px] font-black tracking-wide text-blue-950 border-t-2 border-black h-16">
                     <td className="p-3 text-left font-black uppercase bg-blue-900 text-white border-r border-black">
-                      📊    📊  COHORT LIVE INSIGHTS SUMMARY
+                      📊 COHORT LIVE INSIGHTS SUMMARY
                     </td>
                     {assessmentsList.map((key) => {
                       const stats = getAssessmentMetrics(key);
@@ -616,7 +606,7 @@ export default function MarksEntryPage() {
             <div className="flex justify-between items-center border-b pb-2 gap-4 flex-wrap">
               <div>
                 <h2 className="font-black text-neutral-900 uppercase text-xs flex items-center gap-1.5">
-                  🌟  CO-CURRICULAR RESPONSIBILITY WORKSPACE
+                  🌟 CO-CURRICULAR RESPONSIBILITY WORKSPACE
                 </h2>
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
                   Stream {selectedAlloc.class} Domain Control Panel (Sports & Creative Art Only)
@@ -645,12 +635,12 @@ export default function MarksEntryPage() {
                   <tr>
                     <th className="p-3 text-left w-[25%] border-r border-black align-middle">STUDENT LIST</th>
                     {[
-                      { act: "sports", type: "test", lbl: "SPORTS TEST (/5)" },
-                      { act: "sports", type: "exam", lbl: "SPORTS EXAM (/5)" },
-                      { act: "art", type: "test", lbl: "ART TEST (/5)" },
-                      { act: "art", type: "exam", lbl: "ART EXAM (/5)" },
+                      { act: "sports", type: "test", key: "sports_test", lbl: "SPORTS TEST (/5)" },
+                      { act: "sports", type: "exam", key: "sports_exam", lbl: "SPORTS EXAM (/5)" },
+                      { act: "art", type: "test", key: "art_test", lbl: "ART TEST (/5)" },
+                      { act: "art", type: "exam", key: "art_exam", lbl: "ART EXAM (/5)" },
                     ].map((col) => (
-                      <th key={`${col.act}_${col.type}`} className="p-2 border-r border-black w-[18.75%]">
+                      <th key={col.key} className="p-2 border-r border-black w-[18.75%]">
                         <div>{col.lbl}</div>
                         <div className="flex items-center justify-center gap-1 mt-1.5 font-bold text-[8px] tracking-tight">
                           <button
@@ -705,10 +695,12 @@ export default function MarksEntryPage() {
                             max={5}
                             value={sportsTest}
                             disabled={!isDesignatedClassTeacher}
-                            data-co-idx={idx}
-                            data-co-cell="sports_test"
+                            ref={(el) => {
+                              if (!coInputsRef.current[idx]) coInputsRef.current[idx] = {};
+                              coInputsRef.current[idx]["sports_test"] = el;
+                            }}
                             onChange={(e) => handleCoCurricularChange(student.id, "sports", "test", e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(e, idx, "sports_test", true)}
+                            onKeyDown={(e) => handleCellKeyDown(e, idx, "sports_test", true)}
                             onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "sports", "test")}
                             className="w-16 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
@@ -721,10 +713,12 @@ export default function MarksEntryPage() {
                             max={5}
                             value={sportsExam}
                             disabled={!isDesignatedClassTeacher}
-                            data-co-idx={idx}
-                            data-co-cell="sports_exam"
+                            ref={(el) => {
+                              if (!coInputsRef.current[idx]) coInputsRef.current[idx] = {};
+                              coInputsRef.current[idx]["sports_exam"] = el;
+                            }}
                             onChange={(e) => handleCoCurricularChange(student.id, "sports", "exam", e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(e, idx, "sports_exam", true)}
+                            onKeyDown={(e) => handleCellKeyDown(e, idx, "sports_exam", true)}
                             onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "sports", "exam")}
                             className="w-16 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
@@ -737,10 +731,12 @@ export default function MarksEntryPage() {
                             max={5}
                             value={artTest}
                             disabled={!isDesignatedClassTeacher}
-                            data-co-idx={idx}
-                            data-co-cell="art_test"
+                            ref={(el) => {
+                              if (!coInputsRef.current[idx]) coInputsRef.current[idx] = {};
+                              coInputsRef.current[idx]["art_test"] = el;
+                            }}
                             onChange={(e) => handleCoCurricularChange(student.id, "art", "test", e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(e, idx, "art_test", true)}
+                            onKeyDown={(e) => handleCellKeyDown(e, idx, "art_test", true)}
                             onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "art", "test")}
                             className="w-16 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
@@ -753,10 +749,12 @@ export default function MarksEntryPage() {
                             max={5}
                             value={artExam}
                             disabled={!isDesignatedClassTeacher}
-                            data-co-idx={idx}
-                            data-co-cell="art_exam"
+                            ref={(el) => {
+                              if (!coInputsRef.current[idx]) coInputsRef.current[idx] = {};
+                              coInputsRef.current[idx]["art_exam"] = el;
+                            }}
                             onChange={(e) => handleCoCurricularChange(student.id, "art", "exam", e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(e, idx, "art_exam", true)}
+                            onKeyDown={(e) => handleCellKeyDown(e, idx, "art_exam", true)}
                             onPaste={(e) => handleCoCurricularExcelPaste(e, idx, "art", "exam")}
                             className="w-16 border-2 p-1 text-center font-black rounded-lg bg-white border-gray-300 text-gray-900 focus:border-blue-900 outline-none transition-all"
                           />
